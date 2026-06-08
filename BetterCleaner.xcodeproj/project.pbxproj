@@ -1,0 +1,685 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AA0000000000000000000003 /* BetterShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000002 /* BetterShortcuts */; };
+		BP0000000000000000000003 /* BetterPermissions in Frameworks */ = {isa = PBXBuildFile; productRef = BP0000000000000000000002 /* BetterPermissions */; };
+		BS0000000000000000000003 /* BetterSettings in Frameworks */ = {isa = PBXBuildFile; productRef = BS0000000000000000000002 /* BetterSettings */; };
+		BU0000000000000000000003 /* BetterUpdater in Frameworks */ = {isa = PBXBuildFile; productRef = BU0000000000000000000002 /* BetterUpdater */; };
+		FC000000000000000000F00D /* BetterCleanerFinder.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FC000000000000000000F001 /* BetterCleanerFinder.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		7559A7652FC06FD6004D97B7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7559A74F2FC06FD5004D97B7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7559A7562FC06FD5004D97B7;
+			remoteInfo = BetterCleaner;
+		};
+		FC000000000000000000F00B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7559A74F2FC06FD5004D97B7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FC000000000000000000F003;
+			remoteInfo = BetterCleanerFinder;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		FC000000000000000000F00C /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				FC000000000000000000F00D /* BetterCleanerFinder.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		7559A7572FC06FD5004D97B7 /* BetterCleaner Debug.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "BetterCleaner Debug.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7559A7642FC06FD6004D97B7 /* BetterCleanerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BetterCleanerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FC000000000000000000F001 /* BetterCleanerFinder.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BetterCleanerFinder.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		AAFF000000000000000000F1 /* Exceptions for "BetterCleaner" folder in "BetterCleaner" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 7559A7562FC06FD5004D97B7 /* BetterCleaner */;
+		};
+		FC000000000000000000F00E /* Exceptions for "BetterCleanerFinder" folder in "BetterCleanerFinder" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = FC000000000000000000F003 /* BetterCleanerFinder */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		7559A7592FC06FD5004D97B7 /* BetterCleaner */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AAFF000000000000000000F1 /* Exceptions for "BetterCleaner" folder in "BetterCleaner" target */,
+			);
+			path = BetterCleaner;
+			sourceTree = "<group>";
+		};
+		7559A7672FC06FD6004D97B7 /* BetterCleanerTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = BetterCleanerTests;
+			sourceTree = "<group>";
+		};
+		FC000000000000000000F002 /* BetterCleanerFinder */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				FC000000000000000000F00E /* Exceptions for "BetterCleanerFinder" folder in "BetterCleanerFinder" target */,
+			);
+			path = BetterCleanerFinder;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		7559A7542FC06FD5004D97B7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA0000000000000000000003 /* BetterShortcuts in Frameworks */,
+				BU0000000000000000000003 /* BetterUpdater in Frameworks */,
+				BS0000000000000000000003 /* BetterSettings in Frameworks */,
+				BP0000000000000000000003 /* BetterPermissions in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7559A7612FC06FD6004D97B7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FC000000000000000000F008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		7559A74E2FC06FD5004D97B7 = {
+			isa = PBXGroup;
+			children = (
+				7559A7592FC06FD5004D97B7 /* BetterCleaner */,
+				7559A7672FC06FD6004D97B7 /* BetterCleanerTests */,
+				FC000000000000000000F002 /* BetterCleanerFinder */,
+				7559A7582FC06FD5004D97B7 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		7559A7582FC06FD5004D97B7 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				7559A7572FC06FD5004D97B7 /* BetterCleaner Debug.app */,
+				7559A7642FC06FD6004D97B7 /* BetterCleanerTests.xctest */,
+				FC000000000000000000F001 /* BetterCleanerFinder.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		7559A7562FC06FD5004D97B7 /* BetterCleaner */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7559A7782FC06FD6004D97B7 /* Build configuration list for PBXNativeTarget "BetterCleaner" */;
+			buildPhases = (
+				7559A7532FC06FD5004D97B7 /* Sources */,
+				7559A7542FC06FD5004D97B7 /* Frameworks */,
+				7559A7552FC06FD5004D97B7 /* Resources */,
+				FC000000000000000000F00C /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				FC000000000000000000F00A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				7559A7592FC06FD5004D97B7 /* BetterCleaner */,
+			);
+			name = BetterCleaner;
+			packageProductDependencies = (
+				AA0000000000000000000002 /* BetterShortcuts */,
+				BU0000000000000000000002 /* BetterUpdater */,
+				BS0000000000000000000002 /* BetterSettings */,
+				BP0000000000000000000002 /* BetterPermissions */,
+			);
+			productName = BetterCleaner;
+			productReference = 7559A7572FC06FD5004D97B7 /* BetterCleaner Debug.app */;
+			productType = "com.apple.product-type.application";
+		};
+		7559A7632FC06FD6004D97B7 /* BetterCleanerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7559A77B2FC06FD6004D97B7 /* Build configuration list for PBXNativeTarget "BetterCleanerTests" */;
+			buildPhases = (
+				7559A7602FC06FD6004D97B7 /* Sources */,
+				7559A7612FC06FD6004D97B7 /* Frameworks */,
+				7559A7622FC06FD6004D97B7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7559A7662FC06FD6004D97B7 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				7559A7672FC06FD6004D97B7 /* BetterCleanerTests */,
+			);
+			name = BetterCleanerTests;
+			packageProductDependencies = (
+			);
+			productName = BetterCleanerTests;
+			productReference = 7559A7642FC06FD6004D97B7 /* BetterCleanerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		FC000000000000000000F003 /* BetterCleanerFinder */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FC000000000000000000F004 /* Build configuration list for PBXNativeTarget "BetterCleanerFinder" */;
+			buildPhases = (
+				FC000000000000000000F007 /* Sources */,
+				FC000000000000000000F008 /* Frameworks */,
+				FC000000000000000000F009 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				FC000000000000000000F002 /* BetterCleanerFinder */,
+			);
+			name = BetterCleanerFinder;
+			packageProductDependencies = (
+			);
+			productName = BetterCleanerFinder;
+			productReference = FC000000000000000000F001 /* BetterCleanerFinder.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		7559A74F2FC06FD5004D97B7 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2650;
+				LastUpgradeCheck = 2650;
+				TargetAttributes = {
+					7559A7562FC06FD5004D97B7 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					7559A7632FC06FD6004D97B7 = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = 7559A7562FC06FD5004D97B7;
+					};
+					FC000000000000000000F003 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+				};
+			};
+			buildConfigurationList = 7559A7522FC06FD5004D97B7 /* Build configuration list for PBXProject "BetterCleaner" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 7559A74E2FC06FD5004D97B7;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AA0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterShortcuts" */,
+				BU0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterUpdater" */,
+				BS0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterSettings" */,
+				BP0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterPermissions" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 7559A7582FC06FD5004D97B7 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				7559A7562FC06FD5004D97B7 /* BetterCleaner */,
+				7559A7632FC06FD6004D97B7 /* BetterCleanerTests */,
+				FC000000000000000000F003 /* BetterCleanerFinder */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		7559A7552FC06FD5004D97B7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7559A7622FC06FD6004D97B7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FC000000000000000000F009 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7559A7532FC06FD5004D97B7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7559A7602FC06FD6004D97B7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FC000000000000000000F007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		7559A7662FC06FD6004D97B7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7559A7562FC06FD5004D97B7 /* BetterCleaner */;
+			targetProxy = 7559A7652FC06FD6004D97B7 /* PBXContainerItemProxy */;
+		};
+		FC000000000000000000F00A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FC000000000000000000F003 /* BetterCleanerFinder */;
+			targetProxy = FC000000000000000000F00B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		7559A7762FC06FD6004D97B7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = N529W98U62;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		7559A7772FC06FD6004D97B7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				COPY_PHASE_STRIP = YES;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEPLOYMENT_POSTPROCESSING = YES;
+				DEVELOPMENT_TEAM = N529W98U62;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LLVM_LTO = YES_THIN;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = NO;
+				STRIP_INSTALLED_PRODUCT = YES;
+				STRIP_STYLE = all;
+				STRIP_SWIFT_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		7559A7792FC06FD6004D97B7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = BetterCleaner/BetterCleaner.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N529W98U62;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BetterCleaner/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "BetterCleaner Debug";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rokartur.BetterCleaner.debug;
+				PRODUCT_MODULE_NAME = BetterCleaner;
+				PRODUCT_NAME = "BetterCleaner Debug";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		7559A77A2FC06FD6004D97B7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_OPTIMIZATION = space;
+				CODE_SIGN_ENTITLEMENTS = BetterCleaner/BetterCleaner.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N529W98U62;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BetterCleaner/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BetterCleaner;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rokartur.BetterCleaner;
+				PRODUCT_MODULE_NAME = BetterCleaner;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		7559A77C2FC06FD6004D97B7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N529W98U62;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rokartur.BetterCleaner.Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BetterCleaner Debug.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BetterCleaner Debug";
+			};
+			name = Debug;
+		};
+		7559A77D2FC06FD6004D97B7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N529W98U62;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rokartur.BetterCleaner.Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BetterCleaner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BetterCleaner";
+			};
+			name = Release;
+		};
+		FC000000000000000000F005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BetterCleanerFinder/BetterCleanerFinder.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N529W98U62;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BetterCleanerFinder/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rokartur.BetterCleaner.debug.Finder;
+				PRODUCT_MODULE_NAME = BetterCleanerFinder;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		FC000000000000000000F006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BetterCleanerFinder/BetterCleanerFinder.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = N529W98U62;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BetterCleanerFinder/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rokartur.BetterCleaner.Finder;
+				PRODUCT_MODULE_NAME = BetterCleanerFinder;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		7559A7522FC06FD5004D97B7 /* Build configuration list for PBXProject "BetterCleaner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7559A7762FC06FD6004D97B7 /* Debug */,
+				7559A7772FC06FD6004D97B7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7559A7782FC06FD6004D97B7 /* Build configuration list for PBXNativeTarget "BetterCleaner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7559A7792FC06FD6004D97B7 /* Debug */,
+				7559A77A2FC06FD6004D97B7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7559A77B2FC06FD6004D97B7 /* Build configuration list for PBXNativeTarget "BetterCleanerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7559A77C2FC06FD6004D97B7 /* Debug */,
+				7559A77D2FC06FD6004D97B7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		FC000000000000000000F004 /* Build configuration list for PBXNativeTarget "BetterCleanerFinder" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FC000000000000000000F005 /* Debug */,
+				FC000000000000000000F006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AA0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterShortcuts" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/rokartur/BetterShortcuts.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.2.0;
+			};
+		};
+		BP0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterPermissions" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/rokartur/BetterPermissions.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.1;
+			};
+		};
+		BS0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterSettings" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/rokartur/BetterSettings.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.2.8;
+			};
+		};
+		BU0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterUpdater" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/rokartur/BetterUpdater.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.2.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AA0000000000000000000002 /* BetterShortcuts */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterShortcuts" */;
+			productName = BetterShortcuts;
+		};
+		BP0000000000000000000002 /* BetterPermissions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BP0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterPermissions" */;
+			productName = BetterPermissions;
+		};
+		BS0000000000000000000002 /* BetterSettings */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BS0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterSettings" */;
+			productName = BetterSettings;
+		};
+		BU0000000000000000000002 /* BetterUpdater */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BU0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterUpdater" */;
+			productName = BetterUpdater;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 7559A74F2FC06FD5004D97B7 /* Project object */;
+}
