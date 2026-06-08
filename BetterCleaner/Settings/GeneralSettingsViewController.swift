@@ -1,0 +1,83 @@
+import AppKit
+import BetterSettings
+
+final class GeneralSettingsViewController: SettingsTabViewController {
+    private let sensitivityPopup = NSPopUpButton()
+
+    override func setupContent() {
+        let scanning = addSection(title: "Scanning", anchor: "scanning")
+
+        sensitivityPopup.addItems(withTitles: SearchSensitivity.allCases.map { $0.title })
+        sensitivityPopup.selectItem(at: Preferences.shared.searchSensitivity.rawValue)
+        sensitivityPopup.target = self
+        sensitivityPopup.action = #selector(sensitivityChanged)
+        addRow(to: scanning, title: "Search sensitivity",
+               subtitle: "How aggressively files are matched to an app.",
+               accessory: sensitivityPopup)
+
+        addRow(to: scanning, title: "Include system files",
+               subtitle: "Also scan /Library. Removing these requires an admin password.",
+               accessory: makeSwitch(Preferences.shared.includeSystemFiles, #selector(includeSystemChanged(_:))))
+
+        addRow(to: scanning, title: "Confirm before deleting",
+               accessory: makeSwitch(Preferences.shared.confirmBeforeDelete, #selector(confirmChanged(_:))))
+
+        let uninstall = addSection(title: "Complete Uninstall", anchor: "uninstall")
+        addRow(to: uninstall, title: "Stop helper processes",
+               subtitle: "Force-quit background helpers that keep running after the app closes.",
+               accessory: makeSwitch(Preferences.shared.completeUninstallForceQuit, #selector(forceQuitChanged(_:))))
+        addRow(to: uninstall, title: "Reset privacy permissions",
+               subtitle: "Clear the app's Camera/Microphone/Accessibility grants. You'll re-grant if reinstalled.",
+               accessory: makeSwitch(Preferences.shared.completeUninstallResetPrivacy, #selector(resetPrivacyChanged(_:))))
+        addRow(to: uninstall, title: "Remove Keychain items",
+               subtitle: "Delete passwords the app saved under its bundle id.",
+               accessory: makeSwitch(Preferences.shared.completeUninstallKeychain, #selector(keychainChanged(_:))))
+        // Full Disk Access (and every other capability) now lives in the
+        // dedicated Permissions section of the sidebar, not buried in Settings.
+
+        let sentinel = addSection(title: "Trash Sentinel", anchor: "sentinel")
+        addRow(to: sentinel, title: "Watch Trash for leftovers",
+               subtitle: "When you drag an app to the Trash, notify if it left files behind to clean up.",
+               accessory: makeSwitch(Preferences.shared.watchTrashForLeftovers, #selector(watchTrashChanged(_:))))
+    }
+
+    private func makeSwitch(_ on: Bool, _ action: Selector) -> NSSwitch {
+        let toggle = NSSwitch()
+        toggle.state = on ? .on : .off
+        toggle.target = self
+        toggle.action = action
+        return toggle
+    }
+
+    @objc private func sensitivityChanged() {
+        let index = sensitivityPopup.indexOfSelectedItem
+        guard index >= 0, let sensitivity = SearchSensitivity(rawValue: index) else { return }
+        Preferences.shared.searchSensitivity = sensitivity
+    }
+
+    @objc private func includeSystemChanged(_ sender: NSSwitch) {
+        Preferences.shared.includeSystemFiles = sender.state == .on
+    }
+
+    @objc private func confirmChanged(_ sender: NSSwitch) {
+        Preferences.shared.confirmBeforeDelete = sender.state == .on
+    }
+
+    @objc private func forceQuitChanged(_ sender: NSSwitch) {
+        Preferences.shared.completeUninstallForceQuit = sender.state == .on
+    }
+
+    @objc private func resetPrivacyChanged(_ sender: NSSwitch) {
+        Preferences.shared.completeUninstallResetPrivacy = sender.state == .on
+    }
+
+    @objc private func keychainChanged(_ sender: NSSwitch) {
+        Preferences.shared.completeUninstallKeychain = sender.state == .on
+    }
+
+    @objc private func watchTrashChanged(_ sender: NSSwitch) {
+        let on = sender.state == .on
+        Preferences.shared.watchTrashForLeftovers = on
+        TrashWatcher.shared.setEnabled(on)
+    }
+}
