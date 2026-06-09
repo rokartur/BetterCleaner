@@ -6,3 +6,4 @@ xcuserdata/
 *.xcuserdatad/
 .swiftpm/xcode/package.xcworkspace/xcuserdata/
 default.profraw
+buildServer.json
