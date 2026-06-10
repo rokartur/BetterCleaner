@@ -19,6 +19,8 @@ import Foundation
         let produced = Locations.systemLocations().map { $0.category }
             + Locations.userLocations().map { $0.category }
             + Locations.perUserTempLocations().map { $0.category }
+            + Locations.unixToolLocations().map { $0.category }
+            + Locations.systemDataLocations().map { $0.category }
         for category in produced {
             #expect(order.contains(category), "category \(category) not in categoryOrder")
         }

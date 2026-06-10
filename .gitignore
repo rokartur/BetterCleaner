@@ -7,3 +7,5 @@ xcuserdata/
 .swiftpm/xcode/package.xcworkspace/xcuserdata/
 default.profraw
 buildServer.json
+.vscode/
+dist/

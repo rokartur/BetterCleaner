@@ -4,5 +4,16 @@
 <dict>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>BetterCleaner needs to run a privileged command to move system-owned leftover files to the Trash.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.rokartur.BetterCleaner.uninstall</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>bettercleaner</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

@@ -2,18 +2,8 @@ import AppKit
 import BetterSettings
 
 final class GeneralSettingsViewController: SettingsTabViewController {
-    private let sensitivityPopup = NSPopUpButton()
-
     override func setupContent() {
         let scanning = addSection(title: "Scanning", anchor: "scanning")
-
-        sensitivityPopup.addItems(withTitles: SearchSensitivity.allCases.map { $0.title })
-        sensitivityPopup.selectItem(at: Preferences.shared.searchSensitivity.rawValue)
-        sensitivityPopup.target = self
-        sensitivityPopup.action = #selector(sensitivityChanged)
-        addRow(to: scanning, title: "Search sensitivity",
-               subtitle: "How aggressively files are matched to an app.",
-               accessory: sensitivityPopup)
 
         addRow(to: scanning, title: "Include system files",
                subtitle: "Also scan /Library. Removing these requires an admin password.",
@@ -47,12 +37,6 @@ final class GeneralSettingsViewController: SettingsTabViewController {
         toggle.target = self
         toggle.action = action
         return toggle
-    }
-
-    @objc private func sensitivityChanged() {
-        let index = sensitivityPopup.indexOfSelectedItem
-        guard index >= 0, let sensitivity = SearchSensitivity(rawValue: index) else { return }
-        Preferences.shared.searchSensitivity = sensitivity
     }
 
     @objc private func includeSystemChanged(_ sender: NSSwitch) {

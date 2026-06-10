@@ -44,8 +44,9 @@ enum PrivilegedRunner {
     }
 
     /// Whether an admin `mv` may target this source path (never a protected file,
-    /// never a symlink that could point at one).
-    private static func isSafeToMove(_ path: String) -> Bool {
+    /// never a symlink that could point at one). Public so `Trasher` can record
+    /// only the files this batch will actually move (not the ones it filters out).
+    static func isSafeToMove(_ path: String) -> Bool {
         let url = URL(fileURLWithPath: path)
         if FileMatcher.isProtected(url: url) { return false }
         if FileMatcher.isProtected(url: url.resolvingSymlinksInPath()) { return false }

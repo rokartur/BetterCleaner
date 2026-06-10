@@ -198,8 +198,10 @@ enum AppRemover {
     private static func partition(_ plan: Plan) -> Partition {
         let selected = plan.items.filter { $0.isSelected }
         let receiptItems = selected.filter { $0.category == "Receipts" }
-        let cliItems = selected.filter { $0.category == "Command Line Tools" }
-        let fileItems = selected.filter { $0.category != "Receipts" && $0.category != "Command Line Tools" }
+        // CLI binaries and shell-completion scripts are usually symlinks into the
+        // bundle; both go through the `rm -f` path (mv-to-trash refuses symlinks).
+        let cliItems = selected.filter { $0.category == "Command Line Tools" || $0.category == "Shell Completions" }
+        let fileItems = selected.filter { $0.category != "Receipts" && $0.category != "Command Line Tools" && $0.category != "Shell Completions" }
 
         var part = Partition()
         part.userItems = fileItems.filter { $0.domain == .user }
@@ -256,8 +258,8 @@ enum AppRemover {
         commands.append(contentsOf: PrivilegedRunner.moveCommands(
             container: container.path,
             pairs: moves.map { (src: $0.url.path, dest: $0.dest.path) }))
-        // CLI entries are symlinks (mv-to-trash refuses symlinks); `rm -f` removes
-        // the link only, never the target, so it's safe.
+        // CLI / shell-completion entries are symlinks (mv-to-trash refuses
+        // symlinks); `rm -f` removes the link only, never the target, so it's safe.
         for url in part.cliURLs {
             commands.append("rm -f \(PrivilegedRunner.quote(url.path))")
         }

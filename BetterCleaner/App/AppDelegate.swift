@@ -1,5 +1,4 @@
 import AppKit
-import BetterShortcuts
 import BetterUpdater
 import UserNotifications
 
@@ -20,7 +19,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        AppShortcuts.install()
         Preferences.shared.applyTheme()
 
         // Configure the updater before any BetterUpdater type is touched.
@@ -61,6 +59,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         AppCoordinator.shared.showMainWindow()
         return true
+    }
+
+    /// Handle the `bettercleaner://` deep link emitted by the Finder extension's
+    /// "Uninstall with BetterCleaner" menu item — `bettercleaner://uninstallApp?path=…`.
+    /// Surfaces the app and selects it for uninstall.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where url.scheme == "bettercleaner" {
+            guard url.host == "uninstallApp" else { continue }
+            let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "path" })?.value
+            guard let path, !path.isEmpty else { continue }
+            AppCoordinator.shared.uninstall(name: nil, path: path, matchType: nil)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

@@ -86,10 +86,12 @@ enum FileMatcher {
         if lower.hasPrefix("com.apple.") && !isAppleApp { return nil }
 
         // Display-name + executable terms, guarded against tiny names that would
-        // over-match. Either term hitting is a strong signal.
+        // over-match. Either term hitting is a strong signal. Even an exact
+        // full-name equality needs a 3+ char term — otherwise a file literally
+        // named "Go"/"R"/"X" would auto-match a 1-2 char app name.
         let terms = nameTerms(descriptor)
         let normFile = normalize(fileName)
-        for term in terms where !term.isEmpty && normFile == term { return .strong }
+        for term in terms where term.count >= 3 && normFile == term { return .strong }
 
         switch sensitivity {
         case .strict:

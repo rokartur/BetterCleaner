@@ -7,7 +7,7 @@ final class FileCell: NSTableCellView {
 
     let checkbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
     private let iconView = NSImageView()
-    private let nameField = NSTextField(labelWithString: "")
+    private let nameField = RevealLinkLabel()
     private let pathField = NSTextField(labelWithString: "")
     private let sizeField = NSTextField(labelWithString: "")
     private let safetyDot = NSImageView()
@@ -81,6 +81,9 @@ final class FileCell: NSTableCellView {
         self.item = item
         checkbox.state = item.isSelected ? .on : .off
         iconView.image = IconCache.icon(forPath: item.path)
+        // The name reads as a link: hover underlines it, click reveals the file
+        // (selected) in Finder. The path below stays a plain caption.
+        nameField.url = item.url
         nameField.stringValue = item.displayName
         pathField.stringValue = item.url.deletingLastPathComponent().path
         // "≈" signals the size is a lower bound (part of the tree was unreadable).

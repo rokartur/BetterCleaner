@@ -6,8 +6,6 @@ enum SettingsTabID {
     static let permissions = "permissions"
     static let exclusions = "exclusions"
     static let conditions = "conditions"
-    static let appearance = "appearance"
-    static let shortcuts = "shortcuts"
     static let update = "update"
     static let about = "about"
 }
@@ -26,8 +24,6 @@ enum SettingsCatalog {
                 case SettingsTabID.permissions: return PermissionsSettingsViewController()
                 case SettingsTabID.exclusions: return ExclusionsSettingsViewController()
                 case SettingsTabID.conditions: return ConditionsSettingsViewController()
-                case SettingsTabID.appearance: return AppearanceSettingsViewController()
-                case SettingsTabID.shortcuts: return ShortcutsSettingsViewController()
                 case SettingsTabID.update: return UpdateSettingsViewController()
                 default: return AboutSettingsViewController()
                 }
@@ -48,10 +44,6 @@ enum SettingsCatalog {
                         iconStyle: .solid(SettingsColor(hex: 0xFF9500))),
             SettingsTab(id: SettingsTabID.conditions, title: "Rules", icon: "slider.horizontal.3",
                         iconStyle: .solid(SettingsColor(hex: 0xAF52DE))),
-            SettingsTab(id: SettingsTabID.appearance, title: "Appearance", icon: "paintbrush",
-                        iconStyle: .solid(SettingsColor(hex: 0xFF2D55))),
-            SettingsTab(id: SettingsTabID.shortcuts, title: "Shortcuts", icon: "command",
-                        iconStyle: .solid(SettingsColor(hex: 0x007AFF))),
             SettingsTab(id: SettingsTabID.update, title: "Update", icon: "arrow.down.circle",
                         iconStyle: .solid(SettingsColor(hex: 0x34C759))),
             SettingsTab(id: SettingsTabID.about, title: "About", icon: "info.circle",

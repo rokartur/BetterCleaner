@@ -4,10 +4,15 @@ import AppKit
 /// checkbox + file, with a header (title/summary) and footer (select-all,
 /// selected total, Move to Trash). Drives `Trasher` and reports rescans.
 @MainActor
-final class FileListViewController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate {
+final class FileListViewController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation {
 
     /// Re-run the current scan after a successful trash (so removed rows vanish).
     var onRescanRequested: (() -> Void)?
+
+    /// When set (via `enableAssignToApp`), the row context menu offers "Assign to
+    /// App…", calling this with the clicked file's URL. Only the Orphaned list
+    /// wires it — every other list keeps the plain reveal-only menu.
+    private var onAssignToApp: ((URL) -> Void)?
 
     /// When set, "Move to Trash" performs a *complete* uninstall of this app
     /// (quit, unload daemons, reset privacy, forget receipts, Keychain) via
@@ -35,6 +40,17 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     /// owning wrapper from `NavCatalog` so the header matches the sidebar.
     func setSectionBadge(symbol: String, tint: NSColor) {
         header.setBadge(symbol: symbol, tint: tint)
+    }
+
+    /// Add an "Assign to App…" row context-menu item that calls `handler` with the
+    /// clicked file's URL. Used only by the Orphaned list to attribute a leftover
+    /// to an installed app.
+    func enableAssignToApp(_ handler: @escaping (URL) -> Void) {
+        onAssignToApp = handler
+        outlineView.menu?.addItem(.separator())
+        let item = NSMenuItem(title: "Assign to App…", action: #selector(assignClickedRow), keyEquivalent: "")
+        item.target = self
+        outlineView.menu?.addItem(item)
     }
 
     /// A collapsible cluster of deeply-nested sibling files (e.g. the 17
@@ -353,6 +369,27 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
+    /// Hand the right-clicked leaf file's URL to the assign handler (Orphaned list).
+    /// Groups and section headers have no single file to attribute, so they're
+    /// ignored. System-domain files are skipped too — a per-app force-include rule
+    /// can't surface them (LeftoverScanner ignores force-include for `.system`), so
+    /// assigning one would silently drop it from every list instead of attributing.
+    @objc private func assignClickedRow() {
+        let row = outlineView.clickedRow
+        guard row >= 0, let file = outlineView.item(atRow: row) as? FileItem else { return }
+        guard file.domain != .system else { NSSound.beep(); return }
+        onAssignToApp?(file.url)
+    }
+
+    /// Gray out "Assign to App…" for rows that can't be attributed (groups,
+    /// headers, system-domain files), so the action never silently no-ops.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(assignClickedRow) else { return true }
+        let row = outlineView.clickedRow
+        guard row >= 0, let file = outlineView.item(atRow: row) as? FileItem else { return false }
+        return file.domain != .system
+    }
+
     // MARK: - Prune languages (per-app)
 
     /// Scan the currently-shown app for removable `.lproj` localizations and,
@@ -391,16 +428,27 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        let outcome = Trasher.trash(items, origin: "\(app.name) — Languages")
-        if outcome.cancelled && outcome.trashed.isEmpty { return }
-        if !outcome.failed.isEmpty {
-            let alert = NSAlert()
-            alert.messageText = "Some Languages Couldn't Be Removed"
-            alert.informativeText = "\(outcome.trashed.count) removed, \(outcome.failed.count) failed (permission denied or in use)."
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
+        // Off the main thread — a root-owned language folder would otherwise block
+        // the UI on the admin prompt.
+        loadingView.startIndeterminate("Pruning languages…")
+        pruneLanguagesButton.isEnabled = false
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let outcome = Trasher.trash(items, origin: "\(app.name) — Languages")
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.loadingView.stop()
+                self.pruneLanguagesButton.isEnabled = true
+                if outcome.cancelled && outcome.trashed.isEmpty { return }
+                if !outcome.failed.isEmpty {
+                    let alert = NSAlert()
+                    alert.messageText = "Some Languages Couldn't Be Removed"
+                    alert.informativeText = "\(outcome.trashed.count) removed, \(outcome.failed.count) failed (permission denied or in use)."
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                }
+                self.onRescanRequested?()
+            }
         }
-        onRescanRequested?()
     }
 
     @objc private func trashSelected() {
@@ -425,19 +473,29 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         }
 
         let origin = uninstallContext?.name ?? (header.title.isEmpty ? "BetterCleaner" : header.title)
-        let outcome = Trasher.trash(selected, origin: origin)
-
-        if outcome.cancelled && outcome.trashed.isEmpty {
-            return
+        // Trasher may spawn a blocking admin prompt for root-owned files; run it off
+        // the main thread so the window stays responsive.
+        loadingView.startIndeterminate("Moving to Trash…")
+        trashButton.isEnabled = false
+        selectAllButton.isEnabled = false
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let outcome = Trasher.trash(selected, origin: origin)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.loadingView.stop()
+                self.trashButton.isEnabled = true
+                self.selectAllButton.isEnabled = true
+                if outcome.cancelled && outcome.trashed.isEmpty { return }
+                if !outcome.failed.isEmpty {
+                    let alert = NSAlert()
+                    alert.messageText = "Some Items Couldn't Be Removed"
+                    alert.informativeText = "\(outcome.trashed.count) moved to Trash, \(outcome.failed.count) failed (permission denied or in use)."
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                }
+                self.onRescanRequested?()
+            }
         }
-        if !outcome.failed.isEmpty {
-            let alert = NSAlert()
-            alert.messageText = "Some Items Couldn't Be Removed"
-            alert.informativeText = "\(outcome.trashed.count) moved to Trash, \(outcome.failed.count) failed (permission denied or in use)."
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-        }
-        onRescanRequested?()
     }
 
     // MARK: - Complete uninstall

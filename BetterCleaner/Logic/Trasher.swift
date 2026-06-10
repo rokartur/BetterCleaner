@@ -73,11 +73,19 @@ enum Trasher {
             return finish(Outcome(trashed: trashed, failed: [], cancelled: false))
         }
 
+        // `moveCommands` drops any pair that fails the protected/symlink re-check,
+        // so only record/report the ones it will actually move. Pairs it filtered
+        // out were never moved → report them as failed, never as recoverable.
+        let movableURLs = privilegedURLs.filter { PrivilegedRunner.isSafeToMove($0.path) }
+        let droppedURLs = privilegedURLs.filter { !PrivilegedRunner.isSafeToMove($0.path) }
         let commands = PrivilegedRunner.moveCommands(container: box.path, pairs: privilegedPairs)
+        guard !commands.isEmpty else {
+            return finish(Outcome(trashed: trashed, failed: droppedURLs, cancelled: false))
+        }
         do {
             try PrivilegedRunner.runAdminCommand(commands.joined(separator: " ; "))
-            trashed.append(contentsOf: privilegedURLs)
-            return finish(Outcome(trashed: trashed, failed: [], cancelled: false))
+            trashed.append(contentsOf: movableURLs)
+            return finish(Outcome(trashed: trashed, failed: droppedURLs, cancelled: false))
         } catch PrivilegedRunner.RunError.cancelled {
             return finish(Outcome(trashed: trashed, failed: privilegedURLs, cancelled: true))
         } catch {

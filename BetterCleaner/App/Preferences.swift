@@ -3,32 +3,16 @@ import Combine
 
 /// How aggressively `FileMatcher` associates files with an app. Higher levels
 /// trade more matches for more false positives.
-enum SearchSensitivity: Int, CaseIterable {
+enum SearchSensitivity: Int {
     case strict = 0
     case standard = 1
     case aggressive = 2
-
-    var title: String {
-        switch self {
-        case .strict: return "Strict"
-        case .standard: return "Standard"
-        case .aggressive: return "Aggressive"
-        }
-    }
 }
 
-enum AppTheme: Int, CaseIterable {
+enum AppTheme: Int {
     case system = 0
     case light = 1
     case dark = 2
-
-    var title: String {
-        switch self {
-        case .system: return "System"
-        case .light: return "Light"
-        case .dark: return "Dark"
-        }
-    }
 
     var appearance: NSAppearance? {
         switch self {
@@ -48,7 +32,6 @@ final class Preferences: ObservableObject {
     private let defaults = UserDefaults.standard
 
     private enum Keys {
-        static let sensitivity = "BetterCleaner.searchSensitivity"
         static let includeSystem = "BetterCleaner.includeSystemFiles"
         static let confirmDelete = "BetterCleaner.confirmBeforeDelete"
         static let extraPaths = "BetterCleaner.extraScanPaths"
@@ -62,9 +45,8 @@ final class Preferences: ObservableObject {
         static let watchTrash = "BetterCleaner.watchTrashForLeftovers"
     }
 
-    @Published var searchSensitivity: SearchSensitivity {
-        didSet { defaults.set(searchSensitivity.rawValue, forKey: Keys.sensitivity) }
-    }
+    /// File matching is always Aggressive — most thorough association.
+    let searchSensitivity: SearchSensitivity = .aggressive
     @Published var includeSystemFiles: Bool {
         didSet { defaults.set(includeSystemFiles, forKey: Keys.includeSystem) }
     }
@@ -117,7 +99,6 @@ final class Preferences: ObservableObject {
 
     private init() {
         defaults.register(defaults: [
-            Keys.sensitivity: SearchSensitivity.standard.rawValue,
             // Scan /Library by default for a complete picture — removing system
             // files still needs an admin approval, and they're never auto-selected
             // unless strongly matched.
@@ -130,7 +111,6 @@ final class Preferences: ObservableObject {
             Keys.keychain: true,
             Keys.watchTrash: false,
         ])
-        searchSensitivity = SearchSensitivity(rawValue: defaults.integer(forKey: Keys.sensitivity)) ?? .standard
         includeSystemFiles = defaults.bool(forKey: Keys.includeSystem)
         confirmBeforeDelete = defaults.bool(forKey: Keys.confirmDelete)
         sortBySize = defaults.bool(forKey: Keys.sortBySize)
@@ -154,6 +134,15 @@ final class Preferences: ObservableObject {
 
     /// Enabled matching rules only (passed to the per-app scanner).
     var enabledConditions: [UserCondition] { userConditions.filter { $0.enabled } }
+
+    /// Files the user explicitly assigned to an app — an enabled `include` rule
+    /// pinned to a bundle id that matches a full path exactly. The orphan scan
+    /// treats these as no-longer-orphaned (they now belong to that app).
+    var assignedURLs: [URL] {
+        enabledConditions
+            .filter { $0.kind == .include && $0.target == .path && $0.op == .equals && $0.appScope != nil }
+            .map { URL(fileURLWithPath: $0.value) }
+    }
 
     func applyTheme() {
         NSApp.appearance = theme.appearance

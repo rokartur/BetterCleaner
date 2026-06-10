@@ -51,7 +51,9 @@ final class PermissionsSettingsViewController: SettingsTabViewController {
     deinit { NotificationCenter.default.removeObserver(self) }
 
     @objc private func refreshStatus() {
-        let granted = FullDiskAccess.isGranted
+        // Force a fresh probe — the cached value won't reflect a grant the user
+        // just toggled in System Settings before returning to the app.
+        let granted = FullDiskAccess.refresh()
         if granted {
             statusIcon.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Granted")
             statusIcon.contentTintColor = .systemGreen
@@ -74,6 +76,9 @@ final class PermissionsSettingsViewController: SettingsTabViewController {
     }
 
     @objc private func openFDASettings() {
+        // Touch protected paths first so macOS registers the app in the FDA list —
+        // otherwise the pane opens with no row to toggle.
+        FullDiskAccess.provokeRegistration()
         FullDiskAccess.openSettings()
     }
 }

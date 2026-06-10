@@ -7,11 +7,8 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     private var didInitialScan = false
 
     /// The toolbar page menu — its face shows the current page; the dropdown lists
-    /// every page (with a reclaimable size next to the scannable ones).
+    /// every page (with a reclaimable size next to the scannable ones in the menu).
     private let pagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-
-    /// Toolbar running total of reclaimable space; "—" until the first scan reports.
-    private let totalField = NSTextField(labelWithString: "—")
 
     init() {
         let window = NSWindow(
@@ -28,18 +25,11 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         window.minSize = NSSize(width: 880, height: 500)
         super.init(window: window)
 
-        totalField.font = Typography.monospacedDigit(.subheadline, weight: .semibold)
-        totalField.textColor = .secondaryLabelColor
-        totalField.toolTip = "Reclaimable space found by the last scan"
-
         buildPagePopup()
 
         // Wire the split's callbacks BEFORE loading its view (setting
         // contentViewController runs viewDidLoad, which fires the first
         // `onSectionChanged` for the default Applications page).
-        splitVC.onTotalChanged = { [weak self] bytes in
-            self?.totalField.stringValue = bytes > 0 ? FileSize.string(bytes) : "—"
-        }
         splitVC.onSectionChanged = { [weak self] id in
             self?.selectPopup(id)
             // The sidebar toggle only makes sense on the pages that show the
@@ -62,10 +52,10 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         scheduleInitialScan()
     }
 
-    /// One calm background pass shortly after launch fills the page-menu sizes +
-    /// toolbar total, so the app shows "what's worth cleaning" without a dashboard.
+    /// One calm background pass shortly after launch fills the page-menu sizes,
+    /// so the app shows "what's worth cleaning" without a dashboard.
     /// Gated on Full Disk Access — without it the scanners read partial data and
-    /// would show wrong-low numbers; sizes stay blank until "Scan all".
+    /// would show wrong-low numbers; sizes stay blank until the pass runs.
     private func scheduleInitialScan() {
         guard !didInitialScan else { return }
         didInitialScan = true
@@ -129,8 +119,6 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
 
     private enum ToolbarID {
         static let page = NSToolbarItem.Identifier("page")
-        static let scanAll = NSToolbarItem.Identifier("scanAll")
-        static let total = NSToolbarItem.Identifier("reclaimableTotal")
         static let settings = NSToolbarItem.Identifier("settings")
     }
 
@@ -158,13 +146,12 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         // .toggleSidebar routes through the responder chain to
         // NSSplitViewController.toggleSidebar (collapses the app list). The page
-        // menu sits beside it; the reclaimable total + "Scan all" + Settings on
-        // the right.
-        [.toggleSidebar, ToolbarID.page, .flexibleSpace, ToolbarID.total, ToolbarID.scanAll, ToolbarID.settings]
+        // menu sits beside it; Settings on the right.
+        [.toggleSidebar, ToolbarID.page, .flexibleSpace, ToolbarID.settings]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, ToolbarID.page, .flexibleSpace, .space, ToolbarID.total, ToolbarID.scanAll, ToolbarID.settings]
+        [.toggleSidebar, ToolbarID.page, .flexibleSpace, .space, ToolbarID.settings]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
@@ -174,25 +161,6 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
             item.label = "Page"
             item.toolTip = "Switch between tools"
             item.view = pagePopup
-            item.visibilityPriority = .high
-            return item
-
-        case ToolbarID.scanAll:
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Scan all"
-            item.toolTip = "Scan every category for reclaimable space"
-            item.image = NSImage(systemSymbolName: "sparkle.magnifyingglass", accessibilityDescription: "Scan all")
-            item.target = self
-            item.action = #selector(scanAllClicked)
-            item.isBordered = true
-            return item
-
-        case ToolbarID.total:
-            // Custom-view item so the number shows even though the toolbar is
-            // displayMode .iconOnly (which would suppress a plain label item).
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Reclaimable"
-            item.view = totalField
             item.visibilityPriority = .high
             return item
 
@@ -208,10 +176,6 @@ final class MainWindowController: NSWindowController, NSToolbarDelegate {
         default:
             return nil
         }
-    }
-
-    @objc private func scanAllClicked() {
-        splitVC.scanAll(force: true)
     }
 
     @objc private func settingsClicked() {

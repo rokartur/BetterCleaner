@@ -34,9 +34,6 @@ final class MainSplitViewController: NSSplitViewController {
     private var installedApps: [InstalledApp] = []
     private var scanGeneration = 0
 
-    /// Fired with the summed reclaimable bytes across all scanned sections, for
-    /// the window toolbar's running total.
-    var onTotalChanged: ((Int64) -> Void)?
     /// Fired when a reclaimable section's size updates, so the toolbar page menu
     /// can show it next to that page's name.
     var onSectionSizeChanged: ((_ id: String, _ bytes: Int64) -> Void)?
@@ -206,11 +203,10 @@ final class MainSplitViewController: NSSplitViewController {
     private func setReclaimable(_ bytes: Int64, for id: String) {
         reclaimable[id] = bytes
         onSectionSizeChanged?(id, bytes)
-        onTotalChanged?(reclaimable.values.reduce(0, +))
     }
 
     /// Scan every reclaimable section (Junk / Orphaned / Development) off-screen to
-    /// fill the toolbar total + page-menu sizes without changing the visible page.
+    /// fill the page-menu sizes without changing the visible page.
     /// `force` rescans even already-scanned sections; otherwise it's a one-time
     /// fill reusing cached scans.
     func scanAll(force: Bool) {

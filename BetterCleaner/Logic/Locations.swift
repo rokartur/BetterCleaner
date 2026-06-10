@@ -91,6 +91,37 @@ enum Locations {
         ("Extensions", "Extensions", 1, false, true),
     ]
 
+    /// Unix tool prefixes outside `~/Library` that pkg/brew installers drop CLI
+    /// binaries and shell-completion scripts into — e.g. `/usr/local/bin/mullvad`,
+    /// `/usr/local/share/zsh/site-functions/_mullvad`, `mullvad.fish`. macOS's own
+    /// uninstall scripts list these, but a Library-only scan misses them (the
+    /// completion symlink is a documented un-removed leftover). Always scanned
+    /// (not gated on includeSystem); matched by the same tight bundle-id/name/
+    /// vendor rules, so only the app's own entries among many tools are taken.
+    /// `(category, absolutePath, depth)`.
+    private static let unixToolDirs: [(String, String, Int)] = [
+        ("Command Line Tools", "/usr/local/bin", 1),
+        ("Command Line Tools", "/usr/local/sbin", 1),
+        ("Command Line Tools", "/opt/homebrew/bin", 1),
+        ("Command Line Tools", "/opt/homebrew/sbin", 1),
+        ("Shell Completions", "/usr/local/share/zsh/site-functions", 1),
+        ("Shell Completions", "/usr/local/share/fish/vendor_completions.d", 1),
+        ("Shell Completions", "/usr/local/share/bash-completion/completions", 1),
+        ("Shell Completions", "/opt/homebrew/share/zsh/site-functions", 1),
+        ("Shell Completions", "/opt/homebrew/share/fish/vendor_completions.d", 1),
+        ("Shell Completions", "/opt/homebrew/share/bash-completion/completions", 1),
+    ]
+
+    /// Daemon settings + logs a pkg installer writes outside Library
+    /// (`/etc/<vendor>`, `/var/log/<vendor>` — e.g. `/etc/mullvad-vpn`,
+    /// `/var/log/mullvad-vpn`). System-owned, so scanned only with includeSystem
+    /// and removed with admin rights. Depth 1 + tight matching keeps the scan off
+    /// unrelated system config. `(category, absolutePath, depth)`.
+    private static let systemDataDirs: [(String, String, Int)] = [
+        ("Configuration", "/private/etc", 1),
+        ("Logs", "/private/var/log", 1),
+    ]
+
     static let categoryOrder: [String] = [
         "Application",
         "Application Support", "Caches", "Preferences", "Containers",
@@ -98,7 +129,8 @@ enum Locations {
         "Autosave Information", "Cookies", "HTTPStorages", "WebKit",
         "LaunchAgents", "LaunchDaemons", "Application Scripts",
         "Internet Plug-Ins", "PreferencePanes", "PrivilegedHelperTools",
-        "Services", "Extensions", "Receipts", "Command Line Tools",
+        "Services", "Extensions", "Configuration", "Receipts",
+        "Command Line Tools", "Shell Completions",
         "Audio Plug-Ins", "Screen Savers", "Color Pickers", "Input Methods",
         "Spotlight", "QuickLook", "Contextual Menu Items", "Address Book Plug-Ins",
         "Mail Bundles", "Automator", "Dictionaries", "Sounds", "Developer",
@@ -128,8 +160,36 @@ enum Locations {
         build(root: systemLibrary, entries: subdirs + systemOnly, domain: .system)
     }
 
+    /// Build locations from absolute paths (not a Library subpath).
+    private static func absolute(_ entries: [(String, String, Int)], domain: FileDomain) -> [LibraryLocation] {
+        let fm = FileManager.default
+        var seen = Set<String>()
+        var result: [LibraryLocation] = []
+        for (category, path, depth) in entries {
+            let url = URL(fileURLWithPath: path, isDirectory: true)
+            let key = url.standardizedFileURL.path
+            guard !seen.contains(key), fm.fileExists(atPath: url.path) else { continue }
+            seen.insert(key)
+            result.append(LibraryLocation(category: category, url: url, domain: domain, depth: depth))
+        }
+        return result
+    }
+
+    /// CLI binaries + shell completions under `/usr/local` and `/opt/homebrew`.
+    /// Marked system-domain (often root-owned); `Trasher` escalates only if a real
+    /// permission error occurs, so user-owned brew files still move without a prompt.
+    static func unixToolLocations() -> [LibraryLocation] { absolute(unixToolDirs, domain: .system) }
+
+    /// `/etc` + `/var/log` daemon settings/logs (system-owned).
+    static func systemDataLocations() -> [LibraryLocation] { absolute(systemDataDirs, domain: .system) }
+
     static func locations(includeSystem: Bool) -> [LibraryLocation] {
-        includeSystem ? userLocations() + systemLocations() : userLocations()
+        // Unix tool dirs are always scanned — a CLI/completion leftover shouldn't
+        // depend on the "include system files" toggle. `/etc` + `/var/log` are
+        // genuinely system config, so they stay behind it.
+        var locs = userLocations() + unixToolLocations()
+        if includeSystem { locs += systemLocations() + systemDataLocations() }
+        return locs
     }
 
     /// Per-user temporary roots that aren't fixed paths: the Darwin per-user
