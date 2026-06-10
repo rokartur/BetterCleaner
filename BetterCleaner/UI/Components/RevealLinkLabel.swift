@@ -1,11 +1,11 @@
 import AppKit
 
-/// A path/name label that reads as an actionable link: it underlines while the
-/// pointer is over it (with a pointing-hand cursor) and, on click, reveals its
-/// `url` in Finder. Falls back to a custom `onClick` when one is set.
-///
-/// Built as a plain non-editable `NSTextField` that intercepts its own mouse
-/// events, so it works inside an outline/table row whose rows aren't selectable.
+/// A name label that reads as an actionable link: it underlines while the pointer
+/// is over it (with a pointing-hand cursor). It does NOT handle the click itself —
+/// the owning `NSOutlineView`'s single-click `action` reveals the row in Finder,
+/// which is reliable for non-selectable rows where a per-view click recognizer is
+/// swallowed by the table. This label just provides the hover affordance and
+/// deliberately declines hit-testing so the click reaches the table.
 ///
 /// Hover is driven by the *actual* pointer position, not just enter/exit events:
 /// inside a scroll view the rows move under a stationary cursor (no mouse-moved
@@ -14,18 +14,9 @@ import AppKit
 /// label re-checks the real pointer on every scroll tick, on tracking-area
 /// rebuilds, and whenever it's reconfigured for a recycled row.
 final class RevealLinkLabel: NSTextField {
-    /// The file/folder this label points at; a click reveals it in Finder.
-    var url: URL? {
-        didSet {
-            toolTip = url?.path
-            // A recycled cell may carry a stale hover from the row it showed
-            // before — re-evaluate against where the pointer actually is now.
-            syncHoverToPointer()
-        }
-    }
-
-    /// Overrides the default reveal-in-Finder behavior when set.
-    var onClick: (() -> Void)?
+    /// The file/folder this label points at; only used for the tooltip now (the
+    /// reveal action lives on the enclosing outline view).
+    var url: URL? { didSet { toolTip = url?.path; syncHoverToPointer() } }
 
     private var hoverTracking: NSTrackingArea?
     private weak var observedClipView: NSClipView?
@@ -41,11 +32,6 @@ final class RevealLinkLabel: NSTextField {
         isBezeled = false
         drawsBackground = false
         lineBreakMode = .byTruncatingTail
-        // A click recognizer (not mouseDown) — a non-selectable label inside an
-        // NSOutlineView/NSTableView never receives mouseDown (the table swallows it
-        // for row handling), but a gesture recognizer on the subview still fires.
-        let click = NSClickGestureRecognizer(target: self, action: #selector(handleClick))
-        addGestureRecognizer(click)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
@@ -117,20 +103,11 @@ final class RevealLinkLabel: NSTextField {
         addCursorRect(bounds, cursor: .pointingHand)
     }
 
-    // A non-selectable, non-editable NSTextField declines the mouse (its default
-    // hitTest returns nil), so the click recognizer would never fire — the table
-    // swallows the click instead. Claim hits inside our frame so left-clicks land.
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden else { return nil }
-        return frame.contains(point) ? self : nil
-    }
+    // Decline hit-testing so the click falls through to the outline view, whose
+    // single-click `action` reveals the row. (A non-selectable table row swallows
+    // a per-view click recognizer, which is why reveal-on-click is done table-side.)
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func mouseEntered(with event: NSEvent) { syncHoverToPointer() }
     override func mouseExited(with event: NSEvent) { isHovering = false }
-
-    @objc private func handleClick() {
-        if let onClick { onClick(); return }
-        guard let url, FileManager.default.fileExists(atPath: url.path) else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([url])
-    }
 }

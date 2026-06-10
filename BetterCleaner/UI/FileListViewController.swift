@@ -168,8 +168,11 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         outlineView.indentationPerLevel = 14
         outlineView.autoresizesOutlineColumn = false
         outlineView.usesAutomaticRowHeights = false
-        // Double-click (or right-click → Reveal in Finder) shows the row in Finder.
+        // Single-click anywhere on a row (or double-click, or right-click → Reveal
+        // in Finder) shows the file in Finder. The checkbox is an NSButton, so it
+        // consumes its own clicks and never triggers the reveal.
         outlineView.target = self
+        outlineView.action = #selector(revealClickedRow)
         outlineView.doubleAction = #selector(revealClickedRow)
         let menu = NSMenu()
         let revealItem = NSMenuItem(title: "Reveal in Finder", action: #selector(revealClickedRow), keyEquivalent: "")
