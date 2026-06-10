@@ -29,6 +29,7 @@ final class OrphanedViewController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         fileListVC.onRescanRequested = { [weak self] in self?.rescan() }
+        fileListVC.onReclaimableChanged = { [weak self] bytes in self?.onReclaimable?(bytes) }
         fileListVC.enableAssignToApp { [weak self] url in self?.presentAssignSheet(for: url) }
         if let s = NavCatalog.section(id: "orphaned") { fileListVC.setSectionBadge(symbol: s.icon, tint: s.tint) }
     }

@@ -7,7 +7,14 @@ import AppKit
 final class FileListViewController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation {
 
     /// Re-run the current scan after a successful trash (so removed rows vanish).
+    /// Only used now for a *complete uninstall* (the app bundle is gone, so the
+    /// app list must reload). Plain trashes/prunes update the model in place via
+    /// `removeTrashedItems` — no disk re-walk, no app-list reload.
     var onRescanRequested: (() -> Void)?
+
+    /// Fired after an in-place removal with the new visible reclaimable total, so
+    /// the owning section can refresh its sidebar size without re-scanning.
+    var onReclaimableChanged: ((Int64) -> Void)?
 
     /// When set (via `enableAssignToApp`), the row context menu offers "Assign to
     /// App…", calling this with the clicked file's URL. Only the Orphaned list
@@ -300,6 +307,47 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         updateFooter()
     }
 
+    /// Remove just-trashed rows from the model in place — no disk re-scan and no
+    /// app-list reload. The already-scanned data is the cache; a delete drops only
+    /// what's gone, keeping the rest of the list (and scroll position) intact, then
+    /// reports the new total so the sidebar size updates.
+    func removeTrashedItems(_ trashed: [URL]) {
+        let gone = Set(trashed.map { $0.standardizedFileURL.path })
+        guard !gone.isEmpty else { return }
+        let before = nodes.reduce(0) { $0 + $1.items.count }
+        nodes = nodes.compactMap { node in
+            let remaining = node.items.filter { !gone.contains($0.url.standardizedFileURL.path) }
+            return remaining.isEmpty ? nil : SectionNode(category: node.category, items: remaining)
+        }
+        let after = nodes.reduce(0) { $0 + $1.items.count }
+        // Nothing visible changed (e.g. an Applications-tab language prune removes
+        // in-bundle .lproj files, which this list never shows) — leave the header,
+        // footer and sidebar untouched so we don't clobber the app-detail header.
+        guard after != before else { return }
+
+        if nodes.isEmpty {
+            // Clear the stale "N items · size" so it doesn't sit above "All clear".
+            header.summary = ""
+            legend.isHidden = true
+            emptyState.configure(symbol: "checkmark.circle", title: "All clear",
+                                 message: "Everything you removed was moved to the Trash.")
+            emptyState.isHidden = false
+            outlineView.reloadData()
+        } else {
+            // Refresh the subtitle totals the old full-rescan path used to set.
+            let bytes = nodes.flatMap { $0.items }.reduce(0) { $0 + $1.size }
+            header.summary = "\(after) item\(after == 1 ? "" : "s") · \(FileSize.string(bytes))"
+            emptyState.isHidden = true
+            outlineView.reloadData()
+            for node in nodes { outlineView.expandItem(node) }
+        }
+        updateFooter()
+        // Match the sidebar basis: only auto-selectable ("safe") bytes count as
+        // reclaimable, same as each section's post-scan `onReclaimable`.
+        let reclaimable = nodes.flatMap { $0.items }.filter { $0.isAutoSelectable }.reduce(0) { $0 + $1.size }
+        onReclaimableChanged?(reclaimable)
+    }
+
     // MARK: - Footer
 
     private var selectedItems: [FileItem] { nodes.flatMap { $0.items }.filter { $0.isSelected } }
@@ -446,7 +494,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
                     alert.addButton(withTitle: "OK")
                     alert.runModal()
                 }
-                self.onRescanRequested?()
+                self.removeTrashedItems(outcome.trashed)
             }
         }
     }
@@ -493,7 +541,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
                     alert.addButton(withTitle: "OK")
                     alert.runModal()
                 }
-                self.onRescanRequested?()
+                self.removeTrashedItems(outcome.trashed)
             }
         }
     }
