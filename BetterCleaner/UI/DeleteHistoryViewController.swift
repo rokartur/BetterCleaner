@@ -59,46 +59,45 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
         fileTable.doubleAction = #selector(revealFile)
         fileTable.target = self
 
-        let split = NSSplitView()
-        split.isVertical = true
-        split.dividerStyle = .thin
-        split.translatesAutoresizingMaskIntoConstraints = false
-        split.addArrangedSubview(batchScroll)
-        split.addArrangedSubview(fileScroll)
-
         statusLabel.font = Typography.subheadline
         statusLabel.textColor = .secondaryLabelColor
         restoreButton.isEnabled = false
         let footer = ActionBarView(leading: [refreshButton, statusLabel], trailing: [restoreButton])
         footer.translatesAutoresizingMaskIntoConstraints = false
 
+        // Fixed-width master (batches) + flexible detail (files). Avoids an
+        // NSSplitView that, with autolayout panes, could starve the detail pane of
+        // width and hide the file list entirely.
         let root = NSView()
-        for v in [header, split, footer, emptyState, loadingView] { root.addSubview(v) }
+        for v in [header, batchScroll, fileScroll, footer, emptyState, loadingView] { root.addSubview(v) }
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor, constant: Spacing.md),
             header.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
             header.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
 
-            split.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Spacing.md),
-            split.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
-            split.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
-
-            footer.topAnchor.constraint(equalTo: split.bottomAnchor, constant: Spacing.sm),
             footer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
             footer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
             footer.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -Spacing.md),
 
-            batchScroll.widthAnchor.constraint(greaterThanOrEqualToConstant: 280),
+            batchScroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Spacing.md),
+            batchScroll.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
+            batchScroll.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -Spacing.sm),
+            batchScroll.widthAnchor.constraint(equalToConstant: 320),
 
-            emptyState.topAnchor.constraint(equalTo: split.topAnchor),
-            emptyState.leadingAnchor.constraint(equalTo: split.leadingAnchor),
-            emptyState.trailingAnchor.constraint(equalTo: split.trailingAnchor),
-            emptyState.bottomAnchor.constraint(equalTo: split.bottomAnchor),
+            fileScroll.topAnchor.constraint(equalTo: batchScroll.topAnchor),
+            fileScroll.leadingAnchor.constraint(equalTo: batchScroll.trailingAnchor, constant: Spacing.md),
+            fileScroll.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
+            fileScroll.bottomAnchor.constraint(equalTo: batchScroll.bottomAnchor),
 
-            loadingView.topAnchor.constraint(equalTo: split.topAnchor),
-            loadingView.leadingAnchor.constraint(equalTo: split.leadingAnchor),
-            loadingView.trailingAnchor.constraint(equalTo: split.trailingAnchor),
-            loadingView.bottomAnchor.constraint(equalTo: split.bottomAnchor),
+            emptyState.topAnchor.constraint(equalTo: batchScroll.topAnchor),
+            emptyState.leadingAnchor.constraint(equalTo: batchScroll.leadingAnchor),
+            emptyState.trailingAnchor.constraint(equalTo: fileScroll.trailingAnchor),
+            emptyState.bottomAnchor.constraint(equalTo: batchScroll.bottomAnchor),
+
+            loadingView.topAnchor.constraint(equalTo: batchScroll.topAnchor),
+            loadingView.leadingAnchor.constraint(equalTo: batchScroll.leadingAnchor),
+            loadingView.trailingAnchor.constraint(equalTo: fileScroll.trailingAnchor),
+            loadingView.bottomAnchor.constraint(equalTo: batchScroll.bottomAnchor),
         ])
         view = root
     }
@@ -332,7 +331,10 @@ private final class HistoryBatchCell: NSTableCellView {
         textStack.spacing = 1
         textStack.translatesAutoresizingMaskIntoConstraints = false
 
-        for v in [badgeBG, badge, textStack, countPill] { addSubview(v) }
+        for v in [badgeBG, badge, textStack, countPill] {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(v)
+        }
         NSLayoutConstraint.activate([
             badgeBG.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Spacing.sm),
             badgeBG.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -442,6 +444,7 @@ private final class PillLabel: NSView {
 
     init() {
         super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
         layer?.cornerRadius = 7
         label.translatesAutoresizingMaskIntoConstraints = false
