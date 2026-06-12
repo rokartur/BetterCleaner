@@ -22,8 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Preferences.shared.applyTheme()
 
         // Configure the updater before any BetterUpdater type is touched.
-        // NOTE: transitional pinned key + manifestRequired:false until the
-        // rokartur/BetterCleaner release-signing pipeline exists (see README).
+        // The pinned Ed25519 public key is the trust anchor for the signed
+        // repo-identity manifest produced by .github/workflows/sign-release.yml on
+        // every published release (its private half is the BETTERUPDATER_PRIVATE_KEY
+        // repo secret). manifestRequired:true fails closed — no valid manifest, no
+        // update — so the pipeline must sign each release (see BetterUpdater README).
         BetterUpdater.bootstrap(configuration: .init(
             owner: "rokartur",
             repo: "BetterCleaner",
@@ -31,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             bundleIdentifier: "com.rokartur.BetterCleaner",
             pinnedPublicKeyBase64: "L6887IB9AHc2yQ8AqEX/R5H/CqrvamcYtEDKyezRTq8=",
             userAgentProduct: "BetterCleaner-Updater",
-            manifestRequired: false
+            manifestRequired: true
         ))
 
         // Refuse to keep running from a translocated/quarantined mount — App
