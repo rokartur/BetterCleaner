@@ -24,11 +24,6 @@ final class GeneralSettingsViewController: SettingsTabViewController {
                accessory: makeSwitch(Preferences.shared.completeUninstallKeychain, #selector(keychainChanged(_:))))
         // Full Disk Access (and every other capability) now lives in the
         // dedicated Permissions section of the sidebar, not buried in Settings.
-
-        let sentinel = addSection(title: "Trash Sentinel", anchor: "sentinel")
-        addRow(to: sentinel, title: "Watch Trash for leftovers",
-               subtitle: "When you drag an app to the Trash, notify if it left files behind to clean up.",
-               accessory: makeSwitch(Preferences.shared.watchTrashForLeftovers, #selector(watchTrashChanged(_:))))
     }
 
     private func makeSwitch(_ on: Bool, _ action: Selector) -> NSSwitch {
@@ -57,11 +52,5 @@ final class GeneralSettingsViewController: SettingsTabViewController {
 
     @objc private func keychainChanged(_ sender: NSSwitch) {
         Preferences.shared.completeUninstallKeychain = sender.state == .on
-    }
-
-    @objc private func watchTrashChanged(_ sender: NSSwitch) {
-        let on = sender.state == .on
-        Preferences.shared.watchTrashForLeftovers = on
-        TrashWatcher.shared.setEnabled(on)
     }
 }

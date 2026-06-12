@@ -1,6 +1,5 @@
 import AppKit
 import BetterUpdater
-import UserNotifications
 
 @main
 @MainActor
@@ -45,11 +44,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard AppTranslocation.guardLaunchLocation() else { return }
 
         AppCoordinator.shared.showMainWindow()
-
-        // Sentinel: watch the Trash for drag-to-Trash uninstalls (opt-in). Posts a
-        // notification offering to clean leftovers; clicking it surfaces the app.
-        UNUserNotificationCenter.current().delegate = self
-        TrashWatcher.shared.setEnabled(Preferences.shared.watchTrashForLeftovers)
 
         Task { @MainActor in
             // Touch the singleton so it boots its scheduled auto-check task,
@@ -164,31 +158,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.windowsMenu = windowMenu
 
         NSApp.mainMenu = mainMenu
-    }
-}
-
-// MARK: - Trash Sentinel notifications
-
-extension AppDelegate: UNUserNotificationCenterDelegate {
-    // Show the banner even when BetterCleaner is frontmost.
-    nonisolated func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification,
-        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-    ) {
-        completionHandler([.banner, .list, .sound])
-    }
-
-    // Clicking a leftover-cleanup notification brings the main window forward.
-    nonisolated func userNotificationCenter(
-        _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse,
-        withCompletionHandler completionHandler: @escaping () -> Void
-    ) {
-        Task { @MainActor in
-            NSApp.activate(ignoringOtherApps: true)
-            AppCoordinator.shared.showMainWindow()
-        }
-        completionHandler()
     }
 }

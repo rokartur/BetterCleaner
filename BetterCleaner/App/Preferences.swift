@@ -42,7 +42,6 @@ final class Preferences: ObservableObject {
         static let forceQuit = "BetterCleaner.completeUninstallForceQuit"
         static let resetPrivacy = "BetterCleaner.completeUninstallResetPrivacy"
         static let keychain = "BetterCleaner.completeUninstallKeychain"
-        static let watchTrash = "BetterCleaner.watchTrashForLeftovers"
     }
 
     /// File matching is always Aggressive — most thorough association.
@@ -90,13 +89,6 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(completeUninstallKeychain, forKey: Keys.keychain) }
     }
 
-    /// Watch the Trash and, when an app is dragged in, offer to clean its leftover
-    /// files (the Sentinel pattern). Opt-in — it runs a background watcher and posts
-    /// notifications.
-    @Published var watchTrashForLeftovers: Bool {
-        didSet { defaults.set(watchTrashForLeftovers, forKey: Keys.watchTrash) }
-    }
-
     private init() {
         defaults.register(defaults: [
             // Scan /Library by default for a complete picture — removing system
@@ -109,7 +101,6 @@ final class Preferences: ObservableObject {
             Keys.forceQuit: true,
             Keys.resetPrivacy: true,
             Keys.keychain: true,
-            Keys.watchTrash: false,
         ])
         includeSystemFiles = defaults.bool(forKey: Keys.includeSystem)
         confirmBeforeDelete = defaults.bool(forKey: Keys.confirmDelete)
@@ -126,7 +117,6 @@ final class Preferences: ObservableObject {
         completeUninstallForceQuit = defaults.bool(forKey: Keys.forceQuit)
         completeUninstallResetPrivacy = defaults.bool(forKey: Keys.resetPrivacy)
         completeUninstallKeychain = defaults.bool(forKey: Keys.keychain)
-        watchTrashForLeftovers = defaults.bool(forKey: Keys.watchTrash)
     }
 
     var extraScanURLs: [URL] { extraScanPaths.map { URL(fileURLWithPath: $0) } }
