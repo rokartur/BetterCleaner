@@ -133,6 +133,28 @@ enum TrashHistory {
         return loadLocked().reversed()
     }
 
+    /// Forget a single recorded batch (by `Entry.id`). Only drops the log row —
+    /// files already in the Trash are untouched. Returns whether anything changed.
+    @discardableResult
+    static func remove(id: String) -> Bool {
+        guard let fileURL else { return false }
+        lock.lock(); defer { lock.unlock() }
+        var all = loadLocked()
+        let before = all.count
+        all.removeAll { $0.id == id }
+        guard all.count != before else { return false }
+        persistLocked(all, to: fileURL)
+        return true
+    }
+
+    /// Erase the whole deletion history. Files in the Trash are unaffected and can
+    /// still be recovered from the Trash itself.
+    static func clear() {
+        guard let fileURL else { return }
+        lock.lock(); defer { lock.unlock() }
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
     private static func loadLocked() -> [Entry] {
         guard let fileURL, let data = try? Data(contentsOf: fileURL) else { return [] }
         let decoder = JSONDecoder()
