@@ -46,6 +46,30 @@ jobs:
           (cd /tmp/betterupdater && swift build -c release --product betterupdater)
           echo "BU=/tmp/betterupdater/.build/release/betterupdater" >> "$GITHUB_ENV"
 
+      - name: Require notarized assets (fail-closed)
+        # The in-app updater (manifestRequired: true) installs whatever the signed
+        # manifest covers. Refuse to sign a manifest over an un-notarized asset so
+        # the updater can never ship a build Gatekeeper would later block. Each
+        # released .dmg is stapled; the .zip's embedded .app is stapled too.
+        run: |
+          fail=0
+          shopt -s nullglob
+          for dmg in dist/*.dmg; do
+            echo "▸ stapler validate $dmg"
+            xcrun stapler validate "$dmg" || { echo "❌ not notarized/stapled: $dmg"; fail=1; }
+          done
+          for zip in dist/*.zip; do
+            tmp="$(mktemp -d)"
+            ditto -x -k "$zip" "$tmp"
+            app="$(find "$tmp" -maxdepth 1 -name '*.app' | head -1)"
+            if [ -z "$app" ]; then echo "❌ no .app in $zip"; fail=1; continue; fi
+            echo "▸ stapler validate $app (from $zip)"
+            xcrun stapler validate "$app" || { echo "❌ not notarized/stapled: $zip"; fail=1; }
+            echo "▸ spctl assess $app"
+            spctl --assess --type execute --verbose "$app" || { echo "❌ Gatekeeper rejects: $zip"; fail=1; }
+          done
+          [ "$fail" -eq 0 ] || { echo "Refusing to sign a manifest over un-notarized assets."; exit 1; }
+
       - name: Sign manifest
         env:
           BETTERUPDATER_PRIVATE_KEY: ${{ secrets.BETTERUPDATER_PRIVATE_KEY }}

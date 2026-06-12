@@ -57,9 +57,10 @@ Options:
                         prompts per category (Highlights, Added, Changed, Fixed,
                         Security, Removed, Known issues). Empty sections are
                         skipped.
-  --skip-build-bump     Skip build number timestamp bump.
-                        Use when re-running after a notarization failure where the
-                        bump was already committed.
+  --skip-build-bump     Don't commit/push a build-number bump. Reuses the current
+                        CURRENT_PROJECT_VERSION when it's already a timestamp (e.g.
+                        re-running after a notarization failure); if it isn't a
+                        timestamp, a fresh one is still stamped locally (never "1").
   --skip-notarization   Skip notarization & stapling (for local testing).
   --clean               Wipe build/release/ (DMGs, ZIPs, archive, logs)
                         and run xcodebuild clean on DerivedData.
@@ -385,13 +386,25 @@ fi
 
 # ─── Step 1b: Set build number (timestamp) ──────────────────────────────────
 #
-# Every build (beta and stable) gets a fresh timestamp-based CURRENT_PROJECT_VERSION
-# so the in-app updater can detect newer builds of the same version.
+# CURRENT_PROJECT_VERSION MUST be a 14-digit timestamp (YYYYmmddHHMMSS) on every
+# archived build — the in-app updater compares CFBundleVersion to detect newer
+# builds of the same marketing version, so the committed default of "1" (or any
+# hand-edited value) can never be allowed to reach an archive. We re-stamp here
+# and hard-fail below if the value is still not a timestamp.
 
 _commit_ref="${BETA_TAG:-${VERSION}}"
+_ts_re='^[0-9]{14}$'
 
-if [[ $skip_build_bump -eq 0 ]]; then
-  step "Step 1b: Set build number (timestamp)"
+step "Step 1b: Set build number (timestamp)"
+
+if [[ $skip_build_bump -eq 1 && "$BUILD_NUMBER" =~ $_ts_re ]]; then
+  # Re-run after a notarization failure: the committed value is already a valid
+  # timestamp, so reuse it (keeps the build number stable, adds no extra commit).
+  echo "⏭️  --skip-build-bump: reusing committed timestamp build ${BUILD_NUMBER}."
+else
+  if [[ $skip_build_bump -eq 1 ]]; then
+    echo "⚠️  --skip-build-bump requested but ${BUILD_NUMBER} is not a timestamp — stamping a fresh one anyway (won't commit)."
+  fi
 
   NEW_BUILD_NUMBER=$(date +%Y%m%d%H%M%S)
   echo "   Build number: ${BUILD_NUMBER} → ${NEW_BUILD_NUMBER}"
@@ -409,16 +422,23 @@ if [[ $skip_build_bump -eq 0 ]]; then
 
   echo "✅ project.pbxproj updated"
 
-  # Commit and push the bump before any archive work begins.
-  git -C "$REPO_ROOT" add "${APP_NAME}.xcodeproj/project.pbxproj"
-  git -C "$REPO_ROOT" commit -m "chore: bump build number to ${NEW_BUILD_NUMBER} for ${_commit_ref}"
-  git -C "$REPO_ROOT" push origin HEAD
-
-  echo "✅ Build number ${NEW_BUILD_NUMBER} committed and pushed"
+  # Commit and push the bump before any archive work begins — but only on a
+  # normal run. --skip-build-bump stamps locally without recording a commit.
+  if [[ $skip_build_bump -eq 0 ]]; then
+    git -C "$REPO_ROOT" add "${APP_NAME}.xcodeproj/project.pbxproj"
+    git -C "$REPO_ROOT" commit -m "chore: bump build number to ${NEW_BUILD_NUMBER} for ${_commit_ref}"
+    git -C "$REPO_ROOT" push origin HEAD
+    echo "✅ Build number ${NEW_BUILD_NUMBER} committed and pushed"
+  fi
 
   BUILD_NUMBER="$NEW_BUILD_NUMBER"
-else
-  echo "⏭️  Skipping build number bump (--skip-build-bump). Reusing ${BUILD_NUMBER}."
+fi
+
+# Fail closed: never archive (and never name artifacts) with a non-timestamp
+# build number — that would break the updater's newer-build detection.
+if [[ ! "$BUILD_NUMBER" =~ $_ts_re ]]; then
+  echo "❌ CURRENT_PROJECT_VERSION is '${BUILD_NUMBER}', not a YYYYmmddHHMMSS timestamp. Refusing to archive."
+  exit 1
 fi
 
 # Artifact names include build number so the updater can detect same-version newer builds.

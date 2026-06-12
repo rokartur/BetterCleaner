@@ -2,8 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSAppleEventsUsageDescription</key>
-	<string>BetterCleaner needs to run a privileged command to move system-owned leftover files to the Trash.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
