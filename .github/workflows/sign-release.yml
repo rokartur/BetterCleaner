@@ -21,7 +21,7 @@ jobs:
       REPO: BetterCleaner
       BUNDLE_ID: com.rokartur.BetterCleaner
       TEAM_ID: N529W98U62
-      PINNED_PUBLIC_KEY: L6887IB9AHc2yQ8AqEX/R5H/CqrvamcYtEDKyezRTq8=
+      PINNED_PUBLIC_KEY: EAVcucb8UX0CXlHR1UdPhVEuKdN/erxBigQWX91LbVc=
     steps:
       - name: Select Xcode 16 (Swift 6 toolchain)
         # BetterUpdater's Package.swift declares swift-tools-version 6.0;

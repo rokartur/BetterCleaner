@@ -32,7 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             repo: "BetterCleaner",
             displayName: AppInfo.displayName,
             bundleIdentifier: "com.rokartur.BetterCleaner",
-            pinnedPublicKeyBase64: "L6887IB9AHc2yQ8AqEX/R5H/CqrvamcYtEDKyezRTq8=",
+            pinnedPublicKeyBase64: "EAVcucb8UX0CXlHR1UdPhVEuKdN/erxBigQWX91LbVc=",
             userAgentProduct: "BetterCleaner-Updater",
             manifestRequired: true
         ))
