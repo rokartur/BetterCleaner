@@ -30,7 +30,7 @@ final class OrphanedViewController: NSViewController {
         super.viewDidLoad()
         fileListVC.onRescanRequested = { [weak self] in self?.rescan() }
         fileListVC.onReclaimableChanged = { [weak self] bytes in self?.onReclaimable?(bytes) }
-        fileListVC.enableAssignToApp { [weak self] url in self?.presentAssignSheet(for: url) }
+        fileListVC.enableAssignToApp { [weak self] urls in self?.presentAssignSheet(for: urls) }
         if let s = NavCatalog.section(id: "orphaned") { fileListVC.setSectionBadge(symbol: s.icon, tint: s.tint) }
     }
 
@@ -71,11 +71,12 @@ final class OrphanedViewController: NSViewController {
         }
     }
 
-    /// Attribute an orphaned file to an installed app. Persists it as an enabled
-    /// `include` rule pinned to the chosen app's bundle id (so the per-app scan and
-    /// uninstall pick it up) and drops it from the orphan list on the next scan.
-    /// Reversible from Settings → Rules.
-    private func presentAssignSheet(for url: URL) {
+    /// Attribute one or more orphaned files to an installed app. Persists each as an
+    /// enabled `include` rule pinned to the chosen app's bundle id (so the per-app
+    /// scan and uninstall pick it up) and drops them from the orphan list on the next
+    /// scan. Reversible from Settings → Rules.
+    private func presentAssignSheet(for urls: [URL]) {
+        guard !urls.isEmpty else { return }
         let apps = AppFinder.installedApps(extraRoots: Preferences.shared.extraScanURLs)
             .filter { ($0.bundleID?.isEmpty == false) }
         guard !apps.isEmpty else { NSSound.beep(); return }
@@ -83,9 +84,10 @@ final class OrphanedViewController: NSViewController {
         let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 320, height: 25))
         popup.addItems(withTitles: apps.map { $0.name })
 
+        let what = urls.count == 1 ? "“\(urls[0].lastPathComponent)”" : "\(urls.count) items"
         let alert = NSAlert()
         alert.messageText = "Assign to App"
-        alert.informativeText = "Attribute “\(url.lastPathComponent)” to an installed app. It will no longer be listed as orphaned and will be removed when you uninstall that app. You can undo this in Settings → Rules."
+        alert.informativeText = "Attribute \(what) to an installed app. \(urls.count == 1 ? "It" : "They") will no longer be listed as orphaned and will be removed when you uninstall that app. You can undo this in Settings → Rules."
         alert.accessoryView = popup
         alert.addButton(withTitle: "Assign")
         alert.addButton(withTitle: "Cancel")
@@ -93,18 +95,22 @@ final class OrphanedViewController: NSViewController {
 
         let app = apps[popup.indexOfSelectedItem]
         guard let bundleID = app.bundleID?.lowercased() else { return }
-        let path = url.standardizedFileURL.path
 
         var conditions = Preferences.shared.userConditions
-        let exists = conditions.contains {
-            $0.kind == .include && $0.target == .path && $0.op == .equals
-                && $0.value == path && $0.appScope == bundleID
+        var added = false
+        for url in urls {
+            let path = url.standardizedFileURL.path
+            let exists = conditions.contains {
+                $0.kind == .include && $0.target == .path && $0.op == .equals
+                    && $0.value == path && $0.appScope == bundleID
+            }
+            if !exists {
+                conditions.append(UserCondition(kind: .include, target: .path, op: .equals,
+                                                value: path, appScope: bundleID))
+                added = true
+            }
         }
-        if !exists {
-            conditions.append(UserCondition(kind: .include, target: .path, op: .equals,
-                                            value: path, appScope: bundleID))
-            Preferences.shared.userConditions = conditions
-        }
+        if added { Preferences.shared.userConditions = conditions }
         rescan()
     }
 }

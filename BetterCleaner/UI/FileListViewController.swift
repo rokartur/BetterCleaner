@@ -17,9 +17,9 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     var onReclaimableChanged: ((Int64) -> Void)?
 
     /// When set (via `enableAssignToApp`), the row context menu offers "Assign to
-    /// App…", calling this with the clicked file's URL. Only the Orphaned list
+    /// App…", calling this with the files to attribute. Only the Orphaned list
     /// wires it — every other list keeps the plain reveal-only menu.
-    private var onAssignToApp: ((URL) -> Void)?
+    private var onAssignToApp: (([URL]) -> Void)?
 
     /// When set, "Move to Trash" performs a *complete* uninstall of this app
     /// (quit, unload daemons, reset privacy, forget receipts, Keychain) via
@@ -50,9 +50,11 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     }
 
     /// Add an "Assign to App…" row context-menu item that calls `handler` with the
-    /// clicked file's URL. Used only by the Orphaned list to attribute a leftover
-    /// to an installed app.
-    func enableAssignToApp(_ handler: @escaping (URL) -> Void) {
+    /// files to attribute. Used only by the Orphaned list to attribute leftovers to
+    /// an installed app. Operates on every checked (ticked) row at once, so several
+    /// files/folders can be assigned in one step; falls back to the right-clicked
+    /// row when it sits outside the checked set (Finder-style selection semantics).
+    func enableAssignToApp(_ handler: @escaping ([URL]) -> Void) {
         onAssignToApp = handler
         outlineView.menu?.addItem(.separator())
         let item = NSMenuItem(title: "Assign to App…", action: #selector(assignClickedRow), keyEquivalent: "")
@@ -420,25 +422,49 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    /// Hand the right-clicked leaf file's URL to the assign handler (Orphaned list).
-    /// Groups and section headers have no single file to attribute, so they're
-    /// ignored. System-domain files are skipped too — a per-app force-include rule
-    /// can't surface them (LeftoverScanner ignores force-include for `.system`), so
-    /// assigning one would silently drop it from every list instead of attributing.
+    /// Hand the files to attribute to the assign handler (Orphaned list). Operates
+    /// on the *checked* (ticked) rows so several files/folders can be assigned to one
+    /// app at once; right-clicking a row outside the checked set targets just that
+    /// row instead (Finder-style: a click outside the selection acts on the clicked
+    /// item, a click inside it acts on the whole selection).
     @objc private func assignClickedRow() {
-        let row = outlineView.clickedRow
-        guard row >= 0, let file = outlineView.item(atRow: row) as? FileItem else { return }
-        guard file.domain != .system else { NSSound.beep(); return }
-        onAssignToApp?(file.url)
+        let urls = assignTargets()
+        guard !urls.isEmpty else { NSSound.beep(); return }
+        onAssignToApp?(urls)
     }
 
-    /// Gray out "Assign to App…" for rows that can't be attributed (groups,
-    /// headers, system-domain files), so the action never silently no-ops.
+    /// The files "Assign to App…" should attribute, given the right-clicked row and
+    /// the current checkbox selection. System-domain files are excluded — a per-app
+    /// force-include rule can't surface them (LeftoverScanner ignores force-include
+    /// for `.system`), so assigning one would silently drop it from every list
+    /// instead of attributing. Groups and section headers carry no single file, so
+    /// a right-click on one falls through to the checked set.
+    private func assignTargets() -> [URL] {
+        let clicked = outlineView.item(atRow: outlineView.clickedRow) as? FileItem
+        let checked = nodes.flatMap { $0.items }.filter { $0.isSelected }
+
+        let targets: [FileItem]
+        if let clicked, !clicked.isSelected {
+            // Right-clicked a row outside the checked set → just that row.
+            targets = [clicked]
+        } else if !checked.isEmpty {
+            // Clicked within the checked set (or on a group/header) → all checked.
+            targets = checked
+        } else if let clicked {
+            targets = [clicked]
+        } else {
+            targets = []
+        }
+        return targets.filter { $0.domain != .system }.map { $0.url }
+    }
+
+    /// Gray out "Assign to App…" when nothing assignable is targeted, and reflect
+    /// the count ("Assign 3 Items to App…") so the action never silently no-ops.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard menuItem.action == #selector(assignClickedRow) else { return true }
-        let row = outlineView.clickedRow
-        guard row >= 0, let file = outlineView.item(atRow: row) as? FileItem else { return false }
-        return file.domain != .system
+        let urls = assignTargets()
+        menuItem.title = urls.count > 1 ? "Assign \(urls.count) Items to App…" : "Assign to App…"
+        return !urls.isEmpty
     }
 
     // MARK: - Prune languages (per-app)
