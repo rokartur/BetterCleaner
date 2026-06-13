@@ -8,3 +8,6 @@ xcuserdata/
 default.profraw
 buildServer.json
 dist/
+
+# Release notes draft fed to build_release.sh --notes (not source)
+log.md
