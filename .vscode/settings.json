@@ -1,3 +1,4 @@
 {
-  "sweetpad.build.xcodeWorkspacePath": "BetterCleaner.xcodeproj/project.xcworkspace"
+  "sweetpad.build.xcodeWorkspacePath": "BetterCleaner.xcodeproj/project.xcworkspace",
+  "sweetpad.build.derivedDataPath": "DerivedData"
 }
