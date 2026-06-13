@@ -16,8 +16,9 @@ enum SpotlightScanner {
 
     /// Find app-associated paths outside the scanned Library locations.
     /// `seenPaths` are standardized paths already surfaced by the Library scan.
-    static func scan(app: InstalledApp, seenPaths: Set<String>) -> [FileItem] {
+    static func scan(app: InstalledApp, seenPaths: Set<String>, isCancelled: () -> Bool = { false }) -> [FileItem] {
         guard FileManager.default.isExecutableFile(atPath: mdfind) else { return [] }
+        if isCancelled() { return [] }
         let descriptor = app.descriptor
 
         // Query by reverse-DNS signals (vendor tokens, bundle ids) AND distinctive
@@ -28,23 +29,39 @@ enum SpotlightScanner {
         var terms = Set(FileMatcher.vendorTokens(descriptor))
         terms.formUnion(nameTerms(descriptor))
 
-        // Each mdfind is an independent Process + Spotlight query. Build the full
-        // query list (name terms + bundle-id metadata, the latter catching helper
-        // .apps the vendor registered) and run them concurrently instead of one
-        // serial spawn at a time, merging hits under a lock.
-        var queries: [[String]] = terms.map { ["-name", $0] }
+        // The argv "tail" of each Spotlight query (name term or bundle-id metadata,
+        // the latter catching helper .apps the vendor registered).
+        var queryTails: [[String]] = terms.map { ["-name", $0] }
         for bid in descriptor.allBundleIDs where bid.contains(".") {
-            queries.append(["kMDItemCFBundleIdentifier == '\(bid)*'c"])
+            queryTails.append(["kMDItemCFBundleIdentifier == '\(bid)*'c"])
+        }
+
+        // Search scopes. The unscoped pass (`nil`) hits the whole local index —
+        // boot volume + every Spotlight-indexed volume. The `-onlyin` passes force
+        // a deterministic sweep of external volumes and the shared folder, which a
+        // broad name query can rank-drop or which may be freshly mounted. Volumes
+        // the user excluded from indexing (Time Machine / backup drives) stay
+        // invisible by design — no query scope can reach an unindexed store.
+        let scopes: [String?] = [nil] + extraVolumeScopes()
+
+        // Each mdfind is an independent Process + Spotlight query; run them
+        // concurrently and merge hits under a lock. `-0` makes mdfind NUL-delimit
+        // output so paths containing newlines (legal on APFS/HFS+) aren't split.
+        var queries: [[String]] = []
+        for scope in scopes {
+            let prefix = scope.map { ["-0", "-onlyin", $0] } ?? ["-0"]
+            for tail in queryTails { queries.append(prefix + tail) }
         }
 
         var candidates = Set<String>()
         let lock = NSLock()
         DispatchQueue.concurrentPerform(iterations: queries.count) { i in
+            if isCancelled() { return }
             let out = CommandRunner.run(mdfind, queries[i])
             guard out.ok else { return }
             var local: [String] = []
-            for line in out.stdout.split(separator: "\n") {
-                let path = line.trimmingCharacters(in: .whitespaces)
+            for field in out.stdout.split(separator: "\0", omittingEmptySubsequences: true) {
+                let path = String(field)
                 if !path.isEmpty { local.append(path) }
             }
             guard !local.isEmpty else { return }
@@ -53,6 +70,7 @@ enum SpotlightScanner {
             lock.unlock()
         }
 
+        if isCancelled() { return [] }
         let appPath = app.url.standardizedFileURL.path
         let homePath = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
         let userLibrary = Locations.userLibrary.standardizedFileURL.path
@@ -62,7 +80,15 @@ enum SpotlightScanner {
             .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
             .filter { path in
                 let name = (path as NSString).lastPathComponent
-                guard associates(name, descriptor) else { return false }
+                // Attribute by name/vendor/bundle-id in the name, OR — for an
+                // opaque (UUID/hash) folder a name test can't read, e.g. a data
+                // dir on an external volume — by its Spotlight-indexed bundle id.
+                // Routes through FileMatcher (one matcher), never a parallel rule.
+                let attributed = associates(name, descriptor)
+                    || (FileMatcher.looksOpaque(name)
+                        && FileMatcher.metadataBundleID(of: URL(fileURLWithPath: path))
+                            .map { FileMatcher.containerMatches(identifier: $0, descriptor: descriptor) } == true)
+                guard attributed else { return false }
                 if seenPaths.contains(path) { return false }
                 if path == appPath || path.hasPrefix(appPath + "/") { return false }
                 // Library + System are already covered by the catalog scan.
@@ -86,7 +112,10 @@ enum SpotlightScanner {
         }
 
         let fm = FileManager.default
-        let appTeam = app.teamID
+        // The scanned app's Team ID is read lazily here (bulk discovery skips it):
+        // it's the negative-evidence baseline for rejecting same-named bundles from
+        // a different publisher.
+        let appTeam = app.teamID ?? CodeSigning.teamID(of: app.url)
         return kept.compactMap { path -> FileItem? in
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: path, isDirectory: &isDir) else { return nil }
@@ -105,6 +134,30 @@ enum SpotlightScanner {
                             size: size, isSelected: false, sizeIsApproximate: !complete, isAutoSelectable: false)
         }
         .sorted { $0.size > $1.size }
+    }
+
+    /// Extra `-onlyin` scopes for the Spotlight sweep beyond the default (whole
+    /// local index): the shared folder plus each mounted external volume under
+    /// `/Volumes`, skipping the boot volume (its `/Volumes` entry is a symlink to
+    /// `/`, already covered by the unscoped pass). Gives a deterministic per-volume
+    /// sweep for app data that lives off the boot drive.
+    private static func extraVolumeScopes() -> [String] {
+        let fm = FileManager.default
+        var scopes: [String] = []
+        let shared = "/Users/Shared"
+        if fm.fileExists(atPath: shared) { scopes.append(shared) }
+        if let vols = try? fm.contentsOfDirectory(atPath: "/Volumes") {
+            for vol in vols {
+                let path = "/Volumes/" + vol
+                // Skip the boot-volume symlink (resolves to "/").
+                let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+                if resolved == "/" { continue }
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { continue }
+                scopes.append(path)
+            }
+        }
+        return scopes
     }
 
     /// A signed code-bundle path whose Team ID is worth checking for ownership.

@@ -33,6 +33,8 @@ final class MainSplitViewController: NSSplitViewController {
     private var currentApp: InstalledApp?
     private var installedApps: [InstalledApp] = []
     private var scanGeneration = 0
+    /// Cancels the in-flight leftover scan when the user selects another app.
+    private var currentScanToken: ScanToken?
 
     /// Fired when a reclaimable section's size updates, so the toolbar page menu
     /// can show it next to that page's name.
@@ -158,13 +160,18 @@ final class MainSplitViewController: NSSplitViewController {
 
         scanGeneration += 1
         let generation = scanGeneration
+        // Cancel the previous scan so a stale background walk/Spotlight sweep stops
+        // instead of running to completion while the user clicks through the sidebar.
+        currentScanToken?.cancel()
+        let token = ScanToken()
+        currentScanToken = token
         let sensitivity = Preferences.shared.searchSensitivity
         let includeSystem = Preferences.shared.includeSystemFiles
         let otherApps = installedApps
         let excluded = ScanExclusions.set(from: Preferences.shared.orphanExclusionURLs)
         let conditions = Preferences.shared.enabledConditions
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let items = LeftoverScanner.scan(app: app, sensitivity: sensitivity, includeSystem: includeSystem, otherApps: otherApps, excluded: excluded, conditions: conditions) { fraction in
+            let items = LeftoverScanner.scan(app: app, sensitivity: sensitivity, includeSystem: includeSystem, otherApps: otherApps, excluded: excluded, conditions: conditions, isCancelled: { token.isCancelled }) { fraction in
                 DispatchQueue.main.async {
                     guard let self, generation == self.scanGeneration else { return }
                     self.applicationsFileListVC.updateProgress(fraction)

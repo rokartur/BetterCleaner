@@ -6,13 +6,17 @@ enum AppFinder {
         let fm = FileManager.default
         let roots = [
             URL(fileURLWithPath: "/Applications", isDirectory: true),
-            URL(fileURLWithPath: "/Applications/Utilities", isDirectory: true),
             fm.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true),
             URL(fileURLWithPath: "/System/Applications", isDirectory: true),
-            URL(fileURLWithPath: "/System/Applications/Utilities", isDirectory: true),
         ]
         return roots.filter { fm.fileExists(atPath: $0.path) }
     }
+
+    /// How deep to descend into subfolders of an app root. Apps frequently live one
+    /// or two folders down — `/Applications/Utilities`, `/Applications/Setapp`,
+    /// `/Applications/Adobe …/`, `~/Applications/JetBrains Toolbox` — so a top-level
+    /// scan misses them. Bounded so a pathological deep tree can't stall the scan.
+    private static let maxRootDepth = 4
 
     static func installedApps(extraRoots: [URL] = []) -> [InstalledApp] {
         let fm = FileManager.default
@@ -20,25 +24,52 @@ enum AppFinder {
         var apps: [InstalledApp] = []
 
         for root in defaultRoots() + extraRoots {
-            guard let entries = try? fm.contentsOfDirectory(
-                at: root,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            ) else { continue }
-
-            for url in entries where url.pathExtension == "app" {
+            for url in appBundles(under: root, fm: fm) {
                 let std = url.standardizedFileURL
                 if seen.contains(std) { continue }
                 seen.insert(std)
-                if let app = app(at: std) { apps.append(app) }
+                // Bulk discovery skips the Team ID: it's a per-bundle code-signing
+                // crypto read (SecStaticCode) needed only by the Spotlight scanner
+                // for the *one* app being removed — computing it for every app in
+                // the sidebar is pure waste (and the recursive walk multiplies the
+                // count). Resolved lazily at scan time instead.
+                if let app = app(at: std, resolveTeamID: false) { apps.append(app) }
             }
         }
         return apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    /// Every `.app` bundle at or below `root`, recursing through plain subfolders
+    /// but never *into* an app bundle (`.skipsPackageDescendants`), bounded to
+    /// `maxRootDepth` levels. Catches apps nested in vendor/launcher subfolders that
+    /// a single-level `contentsOfDirectory` scan would miss.
+    private static func appBundles(under root: URL, fm: FileManager) -> [URL] {
+        let rootDepth = root.standardizedFileURL.pathComponents.count
+        guard let enumerator = fm.enumerator(
+            at: root,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return [] }
+
+        var found: [URL] = []
+        for case let url as URL in enumerator {
+            if url.pathExtension == "app" {
+                found.append(url)
+                continue
+            }
+            // Stop descending once we're `maxRootDepth` folders below the root.
+            if url.standardizedFileURL.pathComponents.count - rootDepth >= maxRootDepth {
+                enumerator.skipDescendants()
+            }
+        }
+        return found
+    }
+
     /// Build an `InstalledApp` from a bundle URL, reading its identifier, name,
-    /// executable, and the bundle ids of any nested helpers.
-    static func app(at url: URL) -> InstalledApp? {
+    /// executable, and the bundle ids of any nested helpers. `resolveTeamID:false`
+    /// skips the (relatively costly) code-signing Team ID read for bulk listing;
+    /// callers that need ownership evidence (the leftover scan) pass `true`.
+    static func app(at url: URL, resolveTeamID: Bool = true) -> InstalledApp? {
         guard url.pathExtension == "app" else { return nil }
         // Must be a real bundle directory that exists — guards against a deep-link
         // / Finder-extension path like "/tmp/fake.app" that isn't an app bundle.
@@ -49,9 +80,9 @@ enum AppFinder {
         if ScanExclusions.isInTrash(url.standardizedFileURL.path) { return nil }
         let bundle = Bundle(url: url)
         let bundleID = bundle?.bundleIdentifier
-        let name = (bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
-            ?? (bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String)
-            ?? url.deletingPathExtension().lastPathComponent
+        let displayName = bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+        let bundleName = bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String
+        let name = displayName ?? bundleName ?? url.deletingPathExtension().lastPathComponent
         let executable = bundle?.object(forInfoDictionaryKey: "CFBundleExecutable") as? String
         let shortVersion = bundle?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         let isSystem = url.path.hasPrefix("/System/")
@@ -60,10 +91,11 @@ enum AppFinder {
             url: url,
             bundleID: bundleID,
             name: name,
+            bundleName: bundleName,
             executable: executable,
             extraBundleIDs: nested,
             isSystem: isSystem,
-            teamID: CodeSigning.teamID(of: url),
+            teamID: resolveTeamID ? CodeSigning.teamID(of: url) : nil,
             shortVersion: shortVersion
         )
     }

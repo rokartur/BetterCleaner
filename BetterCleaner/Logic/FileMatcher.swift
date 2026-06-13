@@ -53,29 +53,41 @@ enum FileMatcher {
     ///   other apps' data too.
     enum MatchStrength { case strong, weak }
 
+    /// What evidence produced a match — lets the scanner disambiguate. A `bundleID`
+    /// match is globally unique (an id belongs to exactly one app), so it never
+    /// collides; `name` and `vendor` matches *can* be claimed by another installed
+    /// app and must be checked before auto-selecting.
+    enum MatchKind { case bundleID, name, vendor }
+
+    /// A match: how confident, and what evidence produced it.
+    struct Match {
+        let strength: MatchStrength
+        let kind: MatchKind
+    }
+
     /// Whether `fileName` (a directory entry's last path component) is associated
-    /// with `descriptor`, and how strongly. Nil = no match.
-    static func match(fileName: String, descriptor: AppDescriptor, sensitivity: SearchSensitivity) -> MatchStrength? {
+    /// with `descriptor`, with the confidence and the evidence kind. Nil = no match.
+    static func classify(fileName: String, descriptor: AppDescriptor, sensitivity: SearchSensitivity) -> Match? {
         let lower = fileName.lowercased()
         let ids = descriptor.allBundleIDs
 
         // Bundle identifiers — the strongest signal (primary + nested helpers).
         // com.foo.Bar.plist / com.foo.Bar.savedState / com.foo.Bar.<UUID>.plist
         for bid in ids where !bid.isEmpty {
-            if lower == bid { return .strong }
-            if lower.hasPrefix(bid + ".") || lower.hasPrefix(bid + " ") { return .strong }
+            if lower == bid { return Match(strength: .strong, kind: .bundleID) }
+            if lower.hasPrefix(bid + ".") || lower.hasPrefix(bid + " ") { return Match(strength: .strong, kind: .bundleID) }
             if sensitivity != .strict {
                 // The id embedded as a whole, separator-delimited run — e.g. a
                 // shared-file-list entry "com.apple.sharedfilelist.com.spotify.client.sfl2"
                 // — is a confident (strong) match.
-                if containsBoundedToken(lower, bid) { return .strong }
+                if containsBoundedToken(lower, bid) { return Match(strength: .strong, kind: .bundleID) }
                 // The id glued to a suffix with no separator ("com.foo.BarHelper")
                 // is probably a helper, but indistinguishable from a sibling
                 // ("com.foo.Bartender") — surface for manual review, never
                 // auto-select. (A bare `contains` used to return .strong here and
                 // also fired mid-token, auto-trashing unrelated files.) Real nested
                 // helpers match exactly via extraBundleIDs above.
-                if lower.hasPrefix(bid) { return .weak }
+                if lower.hasPrefix(bid) { return Match(strength: .weak, kind: .bundleID) }
             }
         }
 
@@ -91,7 +103,7 @@ enum FileMatcher {
         // named "Go"/"R"/"X" would auto-match a 1-2 char app name.
         let terms = nameTerms(descriptor)
         let normFile = normalize(fileName)
-        for term in terms where term.count >= 3 && normFile == term { return .strong }
+        for term in terms where term.count >= 3 && normFile == term { return Match(strength: .strong, kind: .name) }
 
         switch sensitivity {
         case .strict:
@@ -101,7 +113,7 @@ enum FileMatcher {
             // the middle of an identifier component (avoids "Core" hitting
             // "com.apple.SpeechRecognitionCore").
             for term in terms where term.count >= 4 {
-                if matchesAtTokenBoundary(fileName: fileName, normName: term) { return .strong }
+                if matchesAtTokenBoundary(fileName: fileName, normName: term) { return Match(strength: .strong, kind: .name) }
             }
         case .aggressive:
             // Superset of .standard: a term that begins any filename token, or the
@@ -110,9 +122,9 @@ enum FileMatcher {
             // auto-select — it is surfaced as a weak (manual) match instead of the
             // old strong one that auto-trashed it.
             for term in terms where term.count >= 4 {
-                if matchesAtTokenBoundary(fileName: fileName, normName: term) { return .strong }
-                if normFile.hasPrefix(term) { return .strong }
-                if normFile.contains(term) { return .weak }
+                if matchesAtTokenBoundary(fileName: fileName, normName: term) { return Match(strength: .strong, kind: .name) }
+                if normFile.hasPrefix(term) { return Match(strength: .strong, kind: .name) }
+                if normFile.contains(term) { return Match(strength: .weak, kind: .name) }
             }
         }
 
@@ -122,29 +134,101 @@ enum FileMatcher {
         // "Parallels", "Parallels Software".
         if sensitivity != .strict {
             for namespace in vendorNamespaces(descriptor) where lower.hasPrefix(namespace) {
-                return .weak
+                return Match(strength: .weak, kind: .vendor)
             }
             for token in vendorTokens(descriptor) {
-                if matchesAtTokenBoundary(fileName: fileName, normName: token) { return .weak }
+                if matchesAtTokenBoundary(fileName: fileName, normName: token) { return Match(strength: .weak, kind: .vendor) }
             }
         }
         return nil
     }
 
-    /// Back-compat boolean form: any match, strong or weak.
-    static func matches(fileName: String, descriptor: AppDescriptor, sensitivity: SearchSensitivity) -> Bool {
-        match(fileName: fileName, descriptor: descriptor, sensitivity: sensitivity) != nil
+    /// Confidence-only form. Nil = no match.
+    static func match(fileName: String, descriptor: AppDescriptor, sensitivity: SearchSensitivity) -> MatchStrength? {
+        classify(fileName: fileName, descriptor: descriptor, sensitivity: sensitivity)?.strength
     }
 
-    /// The normalized name signals for an app: display name + executable name.
+    /// Back-compat boolean form: any match, strong or weak.
+    static func matches(fileName: String, descriptor: AppDescriptor, sensitivity: SearchSensitivity) -> Bool {
+        classify(fileName: fileName, descriptor: descriptor, sensitivity: sensitivity) != nil
+    }
+
+    /// A precomputed view of *other* installed apps' strong identity signals, built
+    /// once per scan so the per-file collision check is cheap. Collapses every other
+    /// app's bundle ids and name terms into deduplicated sets, then answers "does
+    /// any other app strongly claim this filename?" — the "no collisions" guard that
+    /// keeps a name match from auto-selecting a file another app also owns.
+    ///
+    /// Only *strong* evidence vetoes (exact/anchored bundle id, exact/boundary/prefix
+    /// name) — the same forms `classify` calls `.strong`. A weak signal (a bare
+    /// substring, a glued bundle-id suffix, a shared vendor token) is deliberately
+    /// NOT a veto: it would demote far too many legitimate auto-selects (e.g. any
+    /// folder whose name merely contains a 4-char word another app uses).
+    struct CollisionIndex {
+        private let bundleIDs: [String]
+        private let exactNameTerms: Set<String>   // normalized, count >= 3
+        private let prefixNameTerms: [String]      // normalized, count >= 4
+
+        init(_ others: [AppDescriptor]) {
+            var ids = Set<String>()
+            var exact = Set<String>()
+            var prefix = Set<String>()
+            for other in others {
+                for bid in other.allBundleIDs where !bid.isEmpty { ids.insert(bid) }
+                for term in nameTerms(other) {
+                    if term.count >= 3 { exact.insert(term) }
+                    if term.count >= 4 { prefix.insert(term) }
+                }
+            }
+            bundleIDs = Array(ids)
+            exactNameTerms = exact
+            prefixNameTerms = Array(prefix)
+        }
+
+        /// True when some other app strongly claims `fileName`. Mirrors `classify`'s
+        /// strong-match predicates exactly, so the precompute changes only speed,
+        /// never which matches are considered colliding.
+        func claims(fileName: String, sensitivity: SearchSensitivity) -> Bool {
+            let lower = fileName.lowercased()
+            // Strong bundle-id evidence (an id belongs to exactly one app).
+            for bid in bundleIDs {
+                if lower == bid { return true }
+                if lower.hasPrefix(bid + ".") || lower.hasPrefix(bid + " ") { return true }
+                if sensitivity != .strict, containsBoundedToken(lower, bid) { return true }
+            }
+            // Strong name evidence.
+            let normFile = normalize(fileName)
+            if exactNameTerms.contains(normFile) { return true }
+            if sensitivity != .strict {
+                for term in prefixNameTerms {
+                    if matchesAtTokenBoundary(fileName: fileName, normName: term) { return true }
+                    if sensitivity == .aggressive, normFile.hasPrefix(term) { return true }
+                }
+            }
+            return false
+        }
+    }
+
+    /// Whether any of `others` strongly claims `fileName` (the "no collisions"
+    /// guard). Thin wrapper over `CollisionIndex` — kept for call sites/tests that
+    /// pass a one-off app list; the scanner builds the index once and calls
+    /// `claims` directly on the hot path.
+    static func nameClaimedByOther(fileName: String, others: [AppDescriptor], sensitivity: SearchSensitivity) -> Bool {
+        CollisionIndex(others).claims(fileName: fileName, sensitivity: sensitivity)
+    }
+
+    /// The normalized name signals for an app: display name, `CFBundleName` /
+    /// bundle filename (`extraNames`), and the executable name. Cache and support
+    /// folders are named after any of these, not just the display name.
     private static func nameTerms(_ descriptor: AppDescriptor) -> [String] {
         var terms: [String] = []
-        let name = normalize(descriptor.name)
-        if !name.isEmpty { terms.append(name) }
-        if let exe = descriptor.executable {
-            let e = normalize(exe)
-            if !e.isEmpty, !terms.contains(e) { terms.append(e) }
+        func add(_ s: String) {
+            let n = normalize(s)
+            if !n.isEmpty, !terms.contains(n) { terms.append(n) }
         }
+        add(descriptor.name)
+        for extra in descriptor.extraNames { add(extra) }
+        if let exe = descriptor.executable { add(exe) }
         return terms
     }
 

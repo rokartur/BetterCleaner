@@ -11,6 +11,12 @@ struct AppDescriptor: Hashable {
     let name: String
     let executable: String?
     let extraBundleIDs: [String]
+    /// Additional name signals beyond `name`: `CFBundleName` (often differs from
+    /// the display name and *is* the on-disk support/cache folder — VS Code's
+    /// display name is "Visual Studio Code" but its folder is "Code") and the
+    /// bundle's own filename. Used by the matcher so folders named after any of an
+    /// app's real names are attributed to it.
+    let extraNames: [String]
     /// Lowercased code-signing Team Identifier, when the app is signed. Ownership
     /// evidence used to reject look-alike leftovers from a different publisher.
     let teamID: String?
@@ -21,11 +27,12 @@ struct AppDescriptor: Hashable {
     /// repeated allocation.
     let allBundleIDs: [String]
 
-    init(bundleID: String?, name: String, executable: String? = nil, extraBundleIDs: [String] = [], teamID: String? = nil) {
+    init(bundleID: String?, name: String, executable: String? = nil, extraBundleIDs: [String] = [], extraNames: [String] = [], teamID: String? = nil) {
         self.bundleID = bundleID
         self.name = name
         self.executable = executable
         self.extraBundleIDs = extraBundleIDs
+        self.extraNames = extraNames
         self.teamID = teamID
 
         var ids: [String] = []
@@ -44,6 +51,9 @@ struct InstalledApp: Hashable, Identifiable {
     let url: URL
     let bundleID: String?
     let name: String
+    /// `CFBundleName` when it differs from the display `name`. Frequently the
+    /// real on-disk support/cache folder name (e.g. "Code" for Visual Studio Code).
+    let bundleName: String?
     /// `CFBundleExecutable` — frequently the name used for cache/support folders.
     let executable: String?
     /// Bundle ids of nested helpers (login items, plug-ins, XPC services).
@@ -60,6 +70,7 @@ struct InstalledApp: Hashable, Identifiable {
         url: URL,
         bundleID: String?,
         name: String,
+        bundleName: String? = nil,
         executable: String? = nil,
         extraBundleIDs: [String] = [],
         isSystem: Bool,
@@ -69,6 +80,7 @@ struct InstalledApp: Hashable, Identifiable {
         self.url = url
         self.bundleID = bundleID
         self.name = name
+        self.bundleName = bundleName
         self.executable = executable
         self.extraBundleIDs = extraBundleIDs
         self.isSystem = isSystem
@@ -78,6 +90,12 @@ struct InstalledApp: Hashable, Identifiable {
 
     var id: URL { url }
     var descriptor: AppDescriptor {
-        AppDescriptor(bundleID: bundleID, name: name, executable: executable, extraBundleIDs: extraBundleIDs, teamID: teamID)
+        // Extra name signals: CFBundleName (when distinct) + the bundle's own
+        // filename ("Foo" from "Foo.app"), which can differ from the display name.
+        var extra: [String] = []
+        if let b = bundleName, !b.isEmpty, b != name { extra.append(b) }
+        let fileName = url.deletingPathExtension().lastPathComponent
+        if !fileName.isEmpty, fileName != name, !extra.contains(fileName) { extra.append(fileName) }
+        return AppDescriptor(bundleID: bundleID, name: name, executable: executable, extraBundleIDs: extraBundleIDs, extraNames: extra, teamID: teamID)
     }
 }

@@ -139,4 +139,70 @@ import Foundation
         #expect(FileMatcher.isProtected(url: URL(fileURLWithPath: "/Users/x/Library/Preferences/com.apple.finder.plist")))
         #expect(!FileMatcher.isProtected(url: URL(fileURLWithPath: "/Users/x/Library/Preferences/com.foo.Bar.plist")))
     }
+
+    @Test func extraNameIsASearchTerm() {
+        // CFBundleName often differs from the display name and IS the on-disk
+        // support/cache folder: VS Code's display name is "Visual Studio Code" but
+        // its folder is "Code". The display name alone would miss it.
+        let vscode = AppDescriptor(bundleID: "com.microsoft.VSCode", name: "Visual Studio Code",
+                                   executable: "Electron", extraNames: ["Code"])
+        #expect(FileMatcher.matches(fileName: "Code", descriptor: vscode, sensitivity: .standard))
+        #expect(FileMatcher.match(fileName: "Code", descriptor: vscode, sensitivity: .standard) == .strong)
+        // Still attributed by its bundle id regardless of name.
+        #expect(FileMatcher.matches(fileName: "com.microsoft.VSCode.plist", descriptor: vscode, sensitivity: .strict))
+    }
+
+    @Test func classifyReportsEvidenceKind() {
+        let app = AppDescriptor(bundleID: "com.foo.Bar", name: "Bar")
+        #expect(FileMatcher.classify(fileName: "com.foo.Bar.plist", descriptor: app, sensitivity: .strict)?.kind == .bundleID)
+        let spotify = AppDescriptor(bundleID: "com.spotify.client", name: "Spotify")
+        #expect(FileMatcher.classify(fileName: "Spotify.crash", descriptor: spotify, sensitivity: .standard)?.kind == .name)
+        let parallels = AppDescriptor(bundleID: "com.parallels.desktop", name: "Parallels Desktop")
+        #expect(FileMatcher.classify(fileName: "Parallels", descriptor: parallels, sensitivity: .standard)?.kind == .vendor)
+    }
+
+    @Test func nameClaimedByOtherDetectsCollisions() {
+        // Two apps could both answer to the folder name "Code". The collision guard
+        // sees the rival claim so the scanner keeps the match manual (never
+        // auto-trashed under the wrong app). A bundle-id name doesn't collide.
+        let rival = AppDescriptor(bundleID: "com.other.CodeRunner", name: "Code")
+        #expect(FileMatcher.nameClaimedByOther(fileName: "Code", others: [rival], sensitivity: .standard))
+        #expect(!FileMatcher.nameClaimedByOther(fileName: "com.foo.Bar.plist", others: [rival], sensitivity: .standard))
+        // A vendor-only rival claim is too weak to veto an otherwise clean name match.
+        let vendorRival = AppDescriptor(bundleID: "com.parallels.other", name: "Something Else")
+        #expect(!FileMatcher.nameClaimedByOther(fileName: "Parallels", others: [vendorRival], sensitivity: .standard))
+    }
+
+    @Test func collisionGuardVetoesOnlyStrongEvidence() {
+        // A rival whose name only appears as a mid-string substring (weak/contains)
+        // must NOT veto — otherwise any folder containing a 4-char word another app
+        // uses gets demoted to manual, which is the over-suppression that made the
+        // scan feel "worse". Only an exact / token-boundary / prefix name (strong)
+        // or a bundle-id collides.
+        let spotify = AppDescriptor(bundleID: nil, name: "Spotify")
+        #expect(!FileMatcher.nameClaimedByOther(fileName: "multispotifycache", others: [spotify], sensitivity: .aggressive))
+        #expect(FileMatcher.nameClaimedByOther(fileName: "Spotify", others: [spotify], sensitivity: .aggressive))
+        #expect(FileMatcher.nameClaimedByOther(fileName: "spotify.cache", others: [spotify], sensitivity: .aggressive))
+    }
+
+    @Test func collisionIndexMatchesWrapperSemantics() {
+        // The precomputed index must answer identically to the per-app wrapper for a
+        // battery of names across sensitivities — proving the precompute changed only
+        // speed, not which matches collide.
+        let others = [
+            AppDescriptor(bundleID: "com.other.CodeRunner", name: "Code"),
+            AppDescriptor(bundleID: "com.spotify.client", name: "Spotify"),
+            AppDescriptor(bundleID: "com.parallels.other", name: "Something Else"),
+            AppDescriptor(bundleID: "com.foo.Bar", name: "Bar", extraBundleIDs: ["com.foo.BarHelper"]),
+        ]
+        let index = FileMatcher.CollisionIndex(others)
+        let names = ["Code", "com.foo.Bar.plist", "Parallels", "Spotify",
+                     "multispotifycache", "com.spotify.client.helper", "Unrelated"]
+        for sensitivity in [SearchSensitivity.strict, .standard, .aggressive] {
+            for name in names {
+                #expect(index.claims(fileName: name, sensitivity: sensitivity)
+                        == FileMatcher.nameClaimedByOther(fileName: name, others: others, sensitivity: sensitivity))
+            }
+        }
+    }
 }
