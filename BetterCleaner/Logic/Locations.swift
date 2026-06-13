@@ -15,14 +15,20 @@ struct LibraryLocation {
     /// When false, matches here are never swept by "Select All" (e.g. Fonts and
     /// per-user temp dirs, where a stray name match would be costly to undo).
     let autoSelectable: Bool
+    /// When true the directory is walked with hidden entries VISIBLE, but only
+    /// dot-prefixed entries are considered. Used for the home root, where app
+    /// leftovers are dot-directories (`~/.cmuxterm`) while a non-hidden `~/cmux`
+    /// is almost always a user project the scan must not touch.
+    let hiddenLeftoversOnly: Bool
 
-    init(category: String, url: URL, domain: FileDomain, depth: Int = 1, resolvesContainerID: Bool = false, autoSelectable: Bool = true) {
+    init(category: String, url: URL, domain: FileDomain, depth: Int = 1, resolvesContainerID: Bool = false, autoSelectable: Bool = true, hiddenLeftoversOnly: Bool = false) {
         self.category = category
         self.url = url
         self.domain = domain
         self.depth = depth
         self.resolvesContainerID = resolvesContainerID
         self.autoSelectable = autoSelectable
+        self.hiddenLeftoversOnly = hiddenLeftoversOnly
     }
 }
 
@@ -129,12 +135,12 @@ enum Locations {
         "Autosave Information", "Cookies", "HTTPStorages", "WebKit",
         "LaunchAgents", "LaunchDaemons", "Application Scripts",
         "Internet Plug-Ins", "PreferencePanes", "PrivilegedHelperTools",
-        "Services", "Extensions", "Configuration", "Receipts",
+        "Services", "Extensions", "Configuration", "Receipts", "Package Files",
         "Command Line Tools", "Shell Completions",
         "Audio Plug-Ins", "Screen Savers", "Color Pickers", "Input Methods",
         "Spotlight", "QuickLook", "Contextual Menu Items", "Address Book Plug-Ins",
         "Mail Bundles", "Automator", "Dictionaries", "Sounds", "Developer",
-        "Fonts", "Temporary", "Found by Spotlight",
+        "Fonts", "Home", "Temporary", "Found by Spotlight",
         "Orphans (High confidence)", "Orphans (Medium confidence)", "Orphans (Low confidence)",
     ]
 
@@ -211,6 +217,33 @@ enum Locations {
         add(confstrPath(_CS_DARWIN_USER_CACHE_DIR))
         add(confstrPath(_CS_DARWIN_USER_TEMP_DIR))
         add(ProcessInfo.processInfo.environment["TMPDIR"])
+        return result
+    }
+
+    /// App leftovers outside `~/Library`: dot-directories in the home root
+    /// (`~/.cmuxterm`), XDG config/cache/data dirs (`~/.config/cmux`,
+    /// `~/.cache/<app>`, `~/.local/share/<app>`), and world-temp socket/state files
+    /// (`/private/tmp/<app>-*`) — places CLIs and cross-platform apps write that the
+    /// `~/Library` catalog never reaches. The home root is scanned dot-only (a
+    /// non-hidden `~/<name>` is a user project, not a leftover); every entry is
+    /// matched by the same tight bundle-id/name/vendor rules, so only the removed
+    /// app's own entries are surfaced. Depth 1 + tight matching keeps it off
+    /// `~/.ssh`, `~/.zshrc`, and unrelated `/tmp` files.
+    static func homeLeftoverLocations() -> [LibraryLocation] {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser
+        var result: [LibraryLocation] = []
+        func add(_ loc: LibraryLocation) {
+            if fm.fileExists(atPath: loc.url.path) { result.append(loc) }
+        }
+        // Home root — hidden (dot) entries only.
+        add(LibraryLocation(category: "Home", url: home, domain: .user, depth: 1, hiddenLeftoversOnly: true))
+        // XDG-style config/cache/data roots: match the app's own subdirectory.
+        add(LibraryLocation(category: "Configuration", url: home.appendingPathComponent(".config", isDirectory: true), domain: .user, depth: 1))
+        add(LibraryLocation(category: "Caches", url: home.appendingPathComponent(".cache", isDirectory: true), domain: .user, depth: 1))
+        add(LibraryLocation(category: "Application Support", url: home.appendingPathComponent(".local/share", isDirectory: true), domain: .user, depth: 1))
+        // World temp (`/tmp` → `/private/tmp`): app sockets / state files.
+        add(LibraryLocation(category: "Temporary", url: URL(fileURLWithPath: "/private/tmp", isDirectory: true), domain: .user, depth: 1))
         return result
     }
 

@@ -176,6 +176,10 @@ enum AppRemover {
             stepResults[.keychain] = StepResult(step: .keychain, outcome: removed > 0 ? .done : .skipped, detail: removed > 0 ? "\(removed) removed" : nil)
         }
 
+        // The receipt store changed (bundle trashed, receipts forgotten), so drop
+        // the cached app→package BOM index — the next scan rebuilds it.
+        PackageOwnership.invalidate()
+
         summary.results = Step.allCases.compactMap { stepResults[$0] }
         return summary
     }

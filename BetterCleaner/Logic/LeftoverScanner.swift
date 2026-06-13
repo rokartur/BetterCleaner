@@ -17,19 +17,37 @@ enum LeftoverScanner {
     /// vendor is exclusive to this app — so "Parallels"/`com.parallels.*` are
     /// selected for the sole Parallels app, but a shared "Google" folder stays
     /// manual when several `com.google.*` apps are installed.
-    static func scan(app: InstalledApp, sensitivity: SearchSensitivity, includeSystem: Bool, otherApps: [InstalledApp] = [], excluded: Set<String> = [], conditions: [UserCondition] = [], progress: ((Double) -> Void)? = nil) -> [FileItem] {
+    static func scan(app: InstalledApp, sensitivity: SearchSensitivity, includeSystem: Bool, otherApps: [InstalledApp] = [], excluded: Set<String> = [], conditions: [UserCondition] = [], isCancelled: @escaping () -> Bool = { false }, progress: ((Double) -> Void)? = nil) -> [FileItem] {
         let fm = FileManager.default
+        let home = NSHomeDirectory()
         let descriptor = app.descriptor
         var results: [FileItem] = []
         var seen = Set<String>()
 
+        // The app's code-signing Team ID (read lazily — bulk discovery skips it).
+        // A signed helper bundle the lexical matcher misses but whose Team ID equals
+        // the app's is the same publisher's; a different vendor can reuse a name but
+        // not the Team ID. Used as a positive ownership anchor in `collect`.
+        let appTeam = app.teamID ?? CodeSigning.teamID(of: app.url)
         let promoteVendor = vendorIsExclusive(app: app, otherApps: otherApps)
+        // Descriptors of the *other* installed apps, so a name/vendor match can be
+        // checked for collisions before auto-selecting (a folder another app also
+        // answers to stays manual — never auto-trashed under the wrong app).
+        let appPath = app.url.standardizedFileURL.path
+        let otherDescriptors = otherApps
+            .filter { $0.url.standardizedFileURL.path != appPath }
+            .map { $0.descriptor }
+        // Built once: a strong-claim lookup over every other app, so the per-file
+        // collision check is cheap instead of O(files × other apps).
+        let collisions = FileMatcher.CollisionIndex(otherDescriptors)
         // User include/exclude rules, compiled once for this app.
         let evaluator = ConditionEvaluator(conditions: conditions, descriptor: descriptor)
 
-        let locations = Locations.locations(includeSystem: includeSystem) + Locations.perUserTempLocations()
-        // +3 trailing phases: receipts, CLI tools, Spotlight.
-        let totalSteps = Double(locations.count + 3)
+        let locations = Locations.locations(includeSystem: includeSystem)
+            + Locations.perUserTempLocations()
+            + Locations.homeLeftoverLocations()
+        // +4 trailing phases: installer BOM, receipts, CLI tools, Spotlight.
+        let totalSteps = Double(locations.count + 4)
         var doneSteps = 0.0
         func tick() {
             doneSteps += 1
@@ -46,6 +64,7 @@ enum LeftoverScanner {
         }
 
         for location in locations {
+            if isCancelled() { return results }
             collect(
                 in: location.url,
                 category: location.category,
@@ -53,20 +72,53 @@ enum LeftoverScanner {
                 descriptor: descriptor,
                 sensitivity: sensitivity,
                 resolvesContainerID: location.resolvesContainerID,
+                hiddenOnly: location.hiddenLeftoversOnly,
                 depth: location.depth,
                 // Weak (vendor name) matching stays shallow (≤2); deeper levels
                 // record strong signals only.
                 weakDepth: min(location.depth, 2),
                 autoSelectable: location.autoSelectable,
                 promoteVendor: promoteVendor,
+                appTeam: appTeam,
+                collisions: collisions,
                 excluded: excluded,
                 conditions: evaluator,
+                isCancelled: isCancelled,
                 results: &results,
                 seen: &seen,
                 fm: fm
             )
             tick()
         }
+        if isCancelled() { return results }
+
+        // Installer ground truth: every file this app's `.pkg`(s) wrote, per the
+        // BOM. Authoritative ownership (not a name/id heuristic), so pre-selected.
+        // De-duped against the lexical results above, so this only adds installer
+        // files the catalog walk missed (oddly-named data, daemon configs in
+        // non-vendor dirs). Empty for drag-installed apps and without receipt access.
+        for url in PackageOwnership.ownedFiles(for: app) {
+            if isCancelled() { return results }
+            if FileMatcher.isProtected(url: url) { continue }
+            if ScanExclusions.isExcluded(url, in: excluded) { continue }
+            let std = url.standardizedFileURL.path
+            guard seen.insert(std).inserted else { continue }
+            var isDir: ObjCBool = false
+            fm.fileExists(atPath: url.path, isDirectory: &isDir)
+            let (size, complete) = FileSize.sizeWithStatus(of: url)
+            results.append(FileItem(
+                url: url,
+                category: "Package Files",
+                domain: std.hasPrefix(home + "/") ? .user : .system,
+                isDirectory: isDir.boolValue,
+                size: size,
+                isSelected: true,
+                sizeIsApproximate: !complete,
+                isAutoSelectable: true
+            ))
+        }
+        tick()
+        if isCancelled() { return results }
 
         // Installer-package receipts owned by the app. Listing needs no admin;
         // forgetting them happens in AppRemover. De-duplicated against `seen`.
@@ -87,7 +139,7 @@ enum LeftoverScanner {
         // Spotlight recall: app-associated files outside the Library catalog
         // (~/Applications (Vendor), /Users/Shared, home, data bundles). Review-only
         // — never auto-selected, since these can include large user data.
-        for item in SpotlightScanner.scan(app: app, seenPaths: seen) {
+        for item in SpotlightScanner.scan(app: app, seenPaths: seen, isCancelled: isCancelled) {
             let std = item.url.standardizedFileURL.path
             if seen.insert(std).inserted { results.append(item) }
         }
@@ -144,23 +196,31 @@ enum LeftoverScanner {
         descriptor: AppDescriptor,
         sensitivity: SearchSensitivity,
         resolvesContainerID: Bool,
+        hiddenOnly: Bool = false,
         depth: Int,
         weakDepth: Int,
         autoSelectable: Bool,
         promoteVendor: Bool,
+        appTeam: String?,
+        collisions: FileMatcher.CollisionIndex,
         excluded: Set<String>,
         conditions: ConditionEvaluator,
+        isCancelled: () -> Bool,
         results: inout [FileItem],
         seen: inout Set<String>,
         fm: FileManager
     ) {
+        if isCancelled() { return }
         guard let entries = try? fm.contentsOfDirectory(
             at: dir,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
+            options: hiddenOnly ? [] : [.skipsHiddenFiles]
         ) else { return }
 
         for url in entries {
+            // A hidden-leftovers root (the home dir) considers only dot entries —
+            // a non-hidden `~/<name>` is a user project, never an app leftover.
+            if hiddenOnly, !url.lastPathComponent.hasPrefix(".") { continue }
             if FileMatcher.isProtected(url: url) { continue }
             // User scan exclusions skip the path (and its subtree) entirely.
             if ScanExclusions.isExcluded(url, in: excluded) { continue }
@@ -175,27 +235,39 @@ enum LeftoverScanner {
                 : conditions.decide(fileName: url.lastPathComponent, path: url.path)
             if decision == .forceExclude { continue }
 
-            var strength = FileMatcher.match(fileName: url.lastPathComponent, descriptor: descriptor, sensitivity: sensitivity)
-            if strength == nil, resolvesContainerID, isDir.boolValue,
+            var match = FileMatcher.classify(fileName: url.lastPathComponent, descriptor: descriptor, sensitivity: sensitivity)
+            if match == nil, resolvesContainerID, isDir.boolValue,
                let cid = FileMatcher.containerIdentifier(of: url),
                FileMatcher.containerMatches(identifier: cid, descriptor: descriptor) {
-                strength = .strong
+                // Container metadata id is anchored to one app — unique, no collision.
+                match = FileMatcher.Match(strength: .strong, kind: .bundleID)
             }
             // Opaque (UUID/hash) folders carry no lexical signal — ask Spotlight for
             // the owning bundle id. An id equal to one of the app's is anchored (no
             // false positives), so treat it as a strong, auto-selectable match. Gated
             // on `looksOpaque` so the metadata lookup runs only for nameless entries.
-            if strength == nil, sensitivity != .strict, isDir.boolValue,
+            if match == nil, sensitivity != .strict, isDir.boolValue,
                FileMatcher.looksOpaque(url.lastPathComponent),
                let mdID = FileMatcher.metadataBundleID(of: url),
                FileMatcher.containerMatches(identifier: mdID, descriptor: descriptor) {
-                strength = .strong
+                match = FileMatcher.Match(strength: .strong, kind: .bundleID)
+            }
+            // Team-ID anchor: a signed helper bundle (.app/.framework/.bundle/…) the
+            // lexical matcher missed but whose publisher Team ID equals the app's is
+            // the same vendor's leftover. Weak/manual (never auto-trashed): apps from
+            // one vendor share a Team ID, so a sibling app's shared helper must stay
+            // review-only. Gated on a cheap extension check so the signature read
+            // fires only for the rare code bundle the name/id walk failed to attribute.
+            if match == nil, sensitivity != .strict, let appTeam, isDir.boolValue,
+               SpotlightScanner.isCodeBundle(url.lastPathComponent),
+               let team = CodeSigning.teamID(of: url), team == appTeam {
+                match = FileMatcher.Match(strength: .weak, kind: .vendor)
             }
 
             // Force-include a file the matcher would miss. Review-only: never
             // auto-selected, never for system-domain files, and never able to
             // resurrect a protected target (defensive re-check).
-            if strength == nil, decision == .forceInclude, domain != .system,
+            if match == nil, decision == .forceInclude, domain != .system,
                !FileMatcher.isProtected(url: url.resolvingSymlinksInPath()) {
                 let std = url.standardizedFileURL.path
                 if seen.insert(std).inserted {
@@ -214,25 +286,41 @@ enum LeftoverScanner {
                 continue // included folder taken whole — don't descend
             }
 
-            if let strength {
+            if let match {
                 // Beyond the weak-match budget (deep levels) only strong signals
                 // (bundle-id / vendor-namespace in the filename) are recorded — so
                 // the deep walk catches com.parallels.* files nested under shared
                 // containers (com.apple.sharedfilelist, CorePatch/Keychain) without
                 // surfacing other apps' data or vendor-name noise.
-                // Record: always for strong (bundle-id) matches; for vendor
-                // (weak) matches when shallow (`weakDepth`) OR when the vendor is
-                // exclusive to this app (`promoteVendor`) — then com.parallels.*
-                // nested deep under shared containers is unambiguously ours.
-                let isWeak = strength == .weak
+                // Record: always for strong (bundle-id / exact-name) matches; for
+                // weak (vendor / loose-name) matches when shallow (`weakDepth`) OR
+                // when the vendor is exclusive to this app (`promoteVendor`).
+                let isWeak = match.strength == .weak
                 if !isWeak || weakDepth >= 1 || promoteVendor {
                     let std = url.standardizedFileURL.path
                     if seen.insert(std).inserted {
                         let (size, complete) = FileSize.sizeWithStatus(of: url)
-                        // Weak (vendor-only) matches auto-select only when the vendor
-                        // is exclusive to this app; otherwise they stay manual.
-                        let confident = !isWeak || promoteVendor
-                        let select = autoSelectable && confident
+                        // Auto-select only confident, *unambiguous* matches:
+                        //  - bundle-id (strong): unique to one app — always safe;
+                        //  - name (strong): safe unless another installed app also
+                        //    answers to the same name (collision) — then stay manual;
+                        //  - vendor (weak): only when the vendor is exclusive here.
+                        // Everything else is surfaced but left for manual review, so
+                        // a leftover is never auto-trashed under the wrong app.
+                        let select: Bool
+                        if !autoSelectable {
+                            select = false
+                        } else {
+                            switch match.kind {
+                            case .bundleID:
+                                select = match.strength == .strong
+                            case .name:
+                                select = match.strength == .strong
+                                    && !collisions.claims(fileName: url.lastPathComponent, sensitivity: sensitivity)
+                            case .vendor:
+                                select = promoteVendor
+                            }
+                        }
                         results.append(FileItem(
                             url: url,
                             category: category,
@@ -262,8 +350,11 @@ enum LeftoverScanner {
                     weakDepth: max(weakDepth - 1, 0),
                     autoSelectable: autoSelectable,
                     promoteVendor: promoteVendor,
+                    appTeam: appTeam,
+                    collisions: collisions,
                     excluded: excluded,
                     conditions: conditions,
+                    isCancelled: isCancelled,
                     results: &results,
                     seen: &seen,
                     fm: fm
