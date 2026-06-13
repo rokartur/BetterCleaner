@@ -252,7 +252,22 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         ])
 
         view = root
-        showPlaceholder("Select an app to see the files it left behind.")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        // A section's scan can finish while this detail view is still off-screen:
+        // the launch "Scan all" pass (MainWindowController.scheduleInitialScan)
+        // populates Junk / Orphaned / Development before the user ever opens those
+        // pages. Those off-screen `showResults` calls set `nodes` but reloaded the
+        // outline against a not-yet-wired dataSource (loadView sets it), so the rows
+        // never built — and `startIfNeeded` won't re-scan once `hasScanned` is set.
+        // Reload now that the dataSource is live so the cached results appear instead
+        // of a blank pane or the old app-list placeholder. No placeholder default is
+        // shown here: the Applications page sets its own via MainSplitViewController,
+        // and section pages drive their own loading/results state.
+        outlineView.reloadData()
+        for node in nodes { outlineView.expandItem(node) }
     }
 
     // MARK: - Public API
