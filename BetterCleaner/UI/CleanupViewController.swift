@@ -30,6 +30,7 @@ final class CleanupViewController: NSViewController {
         super.viewDidLoad()
         fileListVC.onRescanRequested = { [weak self] in self?.rescan() }
         fileListVC.onReclaimableChanged = { [weak self] bytes in self?.onReclaimable?(bytes) }
+        fileListVC.enableSearch(placeholder: "Search junk…")
         if let s = NavCatalog.section(id: "junk") { fileListVC.setSectionBadge(symbol: s.icon, tint: s.tint) }
     }
 

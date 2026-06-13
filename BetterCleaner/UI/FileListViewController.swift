@@ -136,9 +136,20 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         }
     }
 
+    /// Full result set — the source of truth for selection, totals, Select-Safe
+    /// and Move to Trash. Survives search so filtering never changes what a trash
+    /// actually removes.
+    private var allNodes: [SectionNode] = []
+    /// The filtered subset actually shown in the outline. Equals `allNodes` when
+    /// the search box is empty (or disabled).
     private var nodes: [SectionNode] = []
+    /// Current search text. Empty → no filtering.
+    private var searchQuery = ""
+    /// Whether this list offers a search box (opt-in via `enableSearch`).
+    private var searchEnabled = false
 
     private let header = PageHeaderView()
+    private let searchField = NSSearchField()
     private let legend = SafetyLegendView()
     private let outlineView = NoAnimationOutlineView()
     private let scrollView = ConditionalScrollView()
@@ -207,11 +218,23 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         let footer = ActionBarView(leading: [selectAllButton, pruneLanguagesButton, footerLabel, footerSizeLabel], trailing: [trashButton])
         footer.translatesAutoresizingMaskIntoConstraints = false
 
-        // Header + safety legend stack vertically; NSStackView collapses the
-        // legend when it's hidden (no results), so the header sits alone exactly
-        // as before. The legend starts hidden until a non-empty list is shown.
+        // Live filter box. Opt-in (`enableSearch`) — hidden until a section turns
+        // it on and there are results to filter. Sends its action on each
+        // keystroke (sendsWholeSearchString = false) for incremental filtering.
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchField.controlSize = .large
+        searchField.placeholderString = "Search…"
+        searchField.target = self
+        searchField.action = #selector(searchChanged)
+        searchField.sendsWholeSearchString = false
+        searchField.sendsSearchStringImmediately = false
+        searchField.isHidden = true
+
+        // Header + search + safety legend stack vertically; NSStackView collapses
+        // the legend/search when hidden (no results), so the header sits alone
+        // exactly as before. Legend + search start hidden until a non-empty list.
         legend.isHidden = true
-        let topStack = NSStackView(views: [header, legend])
+        let topStack = NSStackView(views: [header, searchField, legend])
         topStack.orientation = .vertical
         topStack.alignment = .leading
         topStack.spacing = Spacing.sm
@@ -230,6 +253,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
             // Stretch the header to the full stack width so its trailing badge /
             // truncation behaves as it did when pinned directly to the root.
             header.widthAnchor.constraint(equalTo: topStack.widthAnchor),
+            searchField.widthAnchor.constraint(equalToConstant: 280),
 
             scrollView.topAnchor.constraint(equalTo: topStack.bottomAnchor, constant: Spacing.md),
             scrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
@@ -275,11 +299,13 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     /// Show a loading state. `determinate` swaps the spinning indicator for a
     /// progress bar + percent that `updateProgress(_:)` drives.
     func showLoading(_ message: String, determinate: Bool = false) {
+        allNodes = []
         nodes = []
         outlineView.reloadData()
         header.title = ""
         header.summary = ""
         legend.isHidden = true
+        searchField.isHidden = true
         emptyState.isHidden = true
         if determinate {
             loadingView.startDeterminate(message)
@@ -300,31 +326,90 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
 
     func showResults(_ sections: [ScanSection], title: String, subtitle: String) {
         hideProgress()
-        nodes = sections.map { SectionNode(category: $0.category, items: $0.items) }
+        allNodes = sections.map { SectionNode(category: $0.category, items: $0.items) }
         header.title = title
         header.summary = subtitle
-        legend.isHidden = nodes.isEmpty
-        emptyState.isHidden = !nodes.isEmpty
-        if nodes.isEmpty {
+        // Empty-result copy; the search-filtered "no matches" copy is set in
+        // `reloadFiltered` only when results exist but the query hides them all.
+        if allNodes.isEmpty {
             emptyState.configure(symbol: "checkmark.circle",
                                  title: "No leftover files found.",
                                  message: "This app didn't leave anything behind.")
         }
-        outlineView.reloadData()
-        for node in nodes { outlineView.expandItem(node) }
+        // Show the box once there's something to filter; keep any existing query.
+        searchField.isHidden = !searchEnabled || allNodes.isEmpty
+        reloadFiltered()
         updateFooter()
+    }
+
+    /// Turn on the live search box for this list, with a section-specific
+    /// placeholder. Opt-in: only Development / System Junk / Orphaned call it.
+    func enableSearch(placeholder: String) {
+        searchEnabled = true
+        searchField.placeholderString = placeholder
+        searchField.isHidden = allNodes.isEmpty
     }
 
     func showPlaceholder(_ message: String) {
         hideProgress()
+        allNodes = []
         nodes = []
         outlineView.reloadData()
         header.title = ""
         header.summary = ""
         legend.isHidden = true
+        searchField.isHidden = true
         emptyState.configure(symbol: "macwindow", title: message)
         emptyState.isHidden = false
         updateFooter()
+    }
+
+    // MARK: - Search
+
+    @objc private func searchChanged() {
+        searchQuery = searchField.stringValue
+        reloadFiltered()
+    }
+
+    /// Rebuild `nodes` from `allNodes` honoring the current query, then reload the
+    /// outline and reconcile the legend / empty-state. Selection and totals live
+    /// on `allNodes`, so filtering is purely visual.
+    private func reloadFiltered() {
+        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if q.isEmpty {
+            nodes = allNodes
+        } else {
+            nodes = allNodes.compactMap { node in
+                // A category-name match shows the whole section; otherwise filter
+                // to the rows whose name or path contains the query.
+                if node.category.lowercased().contains(q) {
+                    return SectionNode(category: node.category, items: node.items)
+                }
+                let matched = node.items.filter {
+                    $0.displayName.lowercased().contains(q) || $0.path.lowercased().contains(q)
+                }
+                return matched.isEmpty ? nil : SectionNode(category: node.category, items: matched)
+            }
+        }
+
+        if allNodes.isEmpty {
+            // Caller already configured the empty-state copy.
+            emptyState.isHidden = false
+            legend.isHidden = true
+        } else if nodes.isEmpty {
+            // Results exist but the query hid them all.
+            emptyState.configure(symbol: "magnifyingglass",
+                                 title: "No matches",
+                                 message: "No files match “\(searchField.stringValue)”.")
+            emptyState.isHidden = false
+            legend.isHidden = true
+        } else {
+            emptyState.isHidden = true
+            legend.isHidden = false
+        }
+
+        outlineView.reloadData()
+        for node in nodes { outlineView.expandItem(node) }
     }
 
     /// Remove just-trashed rows from the model in place — no disk re-scan and no
@@ -334,43 +419,41 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     func removeTrashedItems(_ trashed: [URL]) {
         let gone = Set(trashed.map { $0.standardizedFileURL.path })
         guard !gone.isEmpty else { return }
-        let before = nodes.reduce(0) { $0 + $1.items.count }
-        nodes = nodes.compactMap { node in
+        let before = allNodes.reduce(0) { $0 + $1.items.count }
+        allNodes = allNodes.compactMap { node in
             let remaining = node.items.filter { !gone.contains($0.url.standardizedFileURL.path) }
             return remaining.isEmpty ? nil : SectionNode(category: node.category, items: remaining)
         }
-        let after = nodes.reduce(0) { $0 + $1.items.count }
+        let after = allNodes.reduce(0) { $0 + $1.items.count }
         // Nothing visible changed (e.g. an Applications-tab language prune removes
         // in-bundle .lproj files, which this list never shows) — leave the header,
         // footer and sidebar untouched so we don't clobber the app-detail header.
         guard after != before else { return }
 
-        if nodes.isEmpty {
+        if allNodes.isEmpty {
             // Clear the stale "N items · size" so it doesn't sit above "All clear".
             header.summary = ""
-            legend.isHidden = true
+            searchField.isHidden = true
             emptyState.configure(symbol: "checkmark.circle", title: "All clear",
                                  message: "Everything you removed was moved to the Trash.")
-            emptyState.isHidden = false
-            outlineView.reloadData()
         } else {
             // Refresh the subtitle totals the old full-rescan path used to set.
-            let bytes = nodes.flatMap { $0.items }.reduce(0) { $0 + $1.size }
+            let bytes = allNodes.flatMap { $0.items }.reduce(0) { $0 + $1.size }
             header.summary = "\(after) item\(after == 1 ? "" : "s") · \(FileSize.string(bytes))"
-            emptyState.isHidden = true
-            outlineView.reloadData()
-            for node in nodes { outlineView.expandItem(node) }
         }
+        // reloadFiltered reconciles the outline, legend and empty-state honoring
+        // any active search query.
+        reloadFiltered()
         updateFooter()
         // Match the sidebar basis: only auto-selectable ("safe") bytes count as
         // reclaimable, same as each section's post-scan `onReclaimable`.
-        let reclaimable = nodes.flatMap { $0.items }.filter { $0.isAutoSelectable }.reduce(0) { $0 + $1.size }
+        let reclaimable = allNodes.flatMap { $0.items }.filter { $0.isAutoSelectable }.reduce(0) { $0 + $1.size }
         onReclaimableChanged?(reclaimable)
     }
 
     // MARK: - Footer
 
-    private var selectedItems: [FileItem] { nodes.flatMap { $0.items }.filter { $0.isSelected } }
+    private var selectedItems: [FileItem] { allNodes.flatMap { $0.items }.filter { $0.isSelected } }
 
     private func updateFooter() {
         let selected = selectedItems
@@ -390,7 +473,8 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         // "Select Safe" only ever toggles auto-selectable (green-dot) rows;
         // ask-first / low-confidence items stay manual. The honest label tells the
         // user exactly that — to grab everything, they use the section checkbox.
-        let autoItems = nodes.flatMap { $0.items }.filter { $0.isAutoSelectable }
+        // Operates on the full set, not the search-filtered view.
+        let autoItems = allNodes.flatMap { $0.items }.filter { $0.isAutoSelectable }
         selectAllButton.isEnabled = !autoItems.isEmpty
         selectAllButton.title = (!autoItems.isEmpty && autoItems.allSatisfy { $0.isSelected }) ? "Deselect Safe" : "Select Safe"
     }
@@ -414,7 +498,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     }
 
     @objc private func toggleSelectAll() {
-        let autoItems = nodes.flatMap { $0.items }.filter { $0.isAutoSelectable }
+        let autoItems = allNodes.flatMap { $0.items }.filter { $0.isAutoSelectable }
         guard !autoItems.isEmpty else { return }
         let selectAll = !autoItems.allSatisfy { $0.isSelected }
         for item in autoItems { item.isSelected = selectAll }
@@ -456,7 +540,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     /// a right-click on one falls through to the checked set.
     private func assignTargets() -> [URL] {
         let clicked = outlineView.item(atRow: outlineView.clickedRow) as? FileItem
-        let checked = nodes.flatMap { $0.items }.filter { $0.isSelected }
+        let checked = allNodes.flatMap { $0.items }.filter { $0.isSelected }
 
         let targets: [FileItem]
         if let clicked, !clicked.isSelected {
@@ -612,7 +696,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
 
-        let allItems = nodes.flatMap { $0.items }
+        let allItems = allNodes.flatMap { $0.items }
         let plan = AppRemover.Plan(app: app, items: allItems, options: options)
 
         header.title = ""

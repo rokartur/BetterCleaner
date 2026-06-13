@@ -6,7 +6,21 @@ import Foundation
 enum DevEnvironmentScanner {
     static func scan() -> [ScanSection] {
         let fm = FileManager.default
-        let locations = DevLocations.all()
+
+        // Expand glob entries (`~/.nvm/versions/node/*`, `…/AndroidStudio*`, …)
+        // into concrete paths, then drop exact duplicates so overlapping catalog
+        // entries can't double-count. Trailing slashes are normalized for the
+        // dedupe key only.
+        var locations: [DevLocation] = []
+        var seen = Set<String>()
+        for loc in DevLocations.all() {
+            let paths = loc.path.contains("*") ? DevGlob.expand(loc.path) : [loc.path]
+            for p in paths {
+                let key = p.hasSuffix("/") ? String(p.dropLast()) : p
+                guard seen.insert(key).inserted else { continue }
+                locations.append(DevLocation(category: loc.category, path: p, tier: loc.tier))
+            }
+        }
 
         // Each dev cache (DerivedData, ~/.gradle, ~/.cargo, npm caches, …) is a
         // big independent tree whose recursive size walk dominates; size them
