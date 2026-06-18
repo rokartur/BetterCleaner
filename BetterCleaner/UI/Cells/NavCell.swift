@@ -1,10 +1,10 @@
 import AppKit
 
-/// Row cell for the navigation sidebar: a monochrome (template) SF Symbol, the
-/// page title, and an optional trailing reclaimable size. Because the symbol is a
-/// template image and the title is the cell's designated `textField`, both
-/// auto-invert to white when the row is selected (emphasized); the trailing size
-/// follows via `backgroundStyle`.
+/// Row cell for the navigation sidebar, laid out 1:1 with the BetterSettings tab
+/// cell: a system-accent SF Symbol (16pt glyph in a 20pt slot), the page title,
+/// and an optional trailing reclaimable size. Content is inset to sit inside the
+/// 9pt selection capsule (`NavRowView`). On the emphasized (key-window) selection
+/// the accent capsule fills the row, so the glyph + text invert to white.
 final class NavCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("NavCell")
 
@@ -25,7 +25,8 @@ final class NavCell: NSTableCellView {
         sizeField.translatesAutoresizingMaskIntoConstraints = false
 
         symbolView.imageScaling = .scaleProportionallyDown
-        symbolView.contentTintColor = .secondaryLabelColor
+        // Accent-tinted glyphs (Finder / System Settings sidebar look).
+        symbolView.contentTintColor = .controlAccentColor
 
         titleField.lineBreakMode = .byTruncatingTail
         titleField.font = Typography.body
@@ -40,22 +41,25 @@ final class NavCell: NSTableCellView {
         addSubview(titleField)
         addSubview(sizeField)
 
-        // Wire the standard outlets so NSTableCellView auto-tints them on selection.
+        // Wire the standard outlets so NSTableCellView auto-tints the title on
+        // selection (the glyph + size follow via `backgroundStyle`).
         imageView = symbolView
         textField = titleField
 
+        // Inset content past the capsule edge: capsule (9pt) + inner padding (6pt).
+        let contentInset = Metrics.sidebarRowPadding + Metrics.sidebarContentPadding
         NSLayoutConstraint.activate([
-            symbolView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Spacing.sm),
+            symbolView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: contentInset),
             symbolView.centerYAnchor.constraint(equalTo: centerYAnchor),
             // 16pt glyph centered in a 20pt container, matching BetterSettings.
             symbolView.widthAnchor.constraint(equalToConstant: Metrics.badgeSize),
             symbolView.heightAnchor.constraint(equalToConstant: Metrics.badgeSize),
 
-            titleField.leadingAnchor.constraint(equalTo: symbolView.trailingAnchor, constant: Spacing.sm),
+            titleField.leadingAnchor.constraint(equalTo: symbolView.trailingAnchor, constant: Metrics.sidebarContentPadding),
             titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
             titleField.trailingAnchor.constraint(lessThanOrEqualTo: sizeField.leadingAnchor, constant: -Spacing.sm),
 
-            sizeField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Spacing.md),
+            sizeField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -contentInset),
             sizeField.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
@@ -78,11 +82,11 @@ final class NavCell: NSTableCellView {
 
     override var backgroundStyle: NSView.BackgroundStyle {
         didSet {
-            // The symbol and the trailing size aren't auto-managed the way the
-            // designated `textField` is, so tint them by hand: white on the
-            // selected (emphasized) row, secondary otherwise.
+            // The glyph + trailing size aren't auto-managed the way the designated
+            // `textField` is: white on the emphasized (accent capsule) row, else the
+            // glyph stays accent-tinted and the size secondary.
             let emphasized = (backgroundStyle == .emphasized)
-            symbolView.contentTintColor = emphasized ? .white : .secondaryLabelColor
+            symbolView.contentTintColor = emphasized ? .white : .controlAccentColor
             sizeField.textColor = emphasized ? .white : .secondaryLabelColor
         }
     }

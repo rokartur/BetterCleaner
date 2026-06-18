@@ -14,6 +14,15 @@ enum Metrics {
     static let headerRowHeight: CGFloat = 28
     /// Sidebar footer control (Settings) — restrained, like the BetterSettings footer.
     static let sidebarFooterHeight: CGFloat = 28
+    /// Sidebar row/button horizontal content inset (BetterSettings `horizontalPadding`).
+    static let sidebarRowPadding: CGFloat = 9
+    /// Inner gap between the selection capsule edge and the row content
+    /// (BetterSettings `contentPadding`).
+    static let sidebarContentPadding: CGFloat = 6
+    /// Sidebar selection capsule corner radius (BetterSettings capsule).
+    static let sidebarSelectionRadius: CGFloat = 8
+    /// Sidebar group-header left inset.
+    static let sidebarHeaderInset: CGFloat = 16
 
     /// Corner radius for large glass surfaces (cards, floating action bars).
     static let glassCornerRadius: CGFloat = 16

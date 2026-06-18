@@ -4,7 +4,8 @@ import AppKit
 struct NavSection {
     let id: String
     let title: String
-    /// Monochrome SF Symbol, rendered as a template image in the sidebar row.
+    /// SF Symbol, rendered as a template image tinted with the system accent in
+    /// the sidebar row.
     let icon: String
     let enabled: Bool
 

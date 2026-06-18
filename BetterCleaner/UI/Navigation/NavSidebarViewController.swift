@@ -1,9 +1,10 @@
 import AppKit
 
 /// The app's primary navigation: a native source-list sidebar that lists every
-/// page grouped into Cleanup / Tools / System. Monochrome — each row is a
-/// template SF Symbol + title (no colored tiles) — with an optional trailing
-/// reclaimable size on the scannable pages.
+/// page grouped into Cleanup / Tools / System, laid out 1:1 with the BetterSettings
+/// tab list (9pt selection capsule, 32pt rows, accent-tinted SF Symbols, no
+/// gradient tiles) — with an optional trailing reclaimable size on the scannable
+/// pages.
 ///
 /// Selecting a row reports its id via `onSelect`. `selectRow(_:)` mirrors a
 /// programmatic page change (launch / drop / deep link) onto the list without
@@ -46,9 +47,12 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
         column.resizingMask = .autoresizingMask
         tableView.addTableColumn(column)
         tableView.headerView = nil
-        // Source-list style → the native sidebar look (rounded full-width selection,
-        // sidebar metrics) matching System Settings.
-        tableView.style = .sourceList
+        // Full-width cells + a custom row view (NavRowView) draw the rounded
+        // selection capsule ourselves, so the pill sits exactly 9pt from the edges
+        // and content padding is precise — instead of the wide default source-list
+        // inset. (BetterSettings does the same.)
+        tableView.style = .fullWidth
+        tableView.selectionHighlightStyle = .regular
         tableView.backgroundColor = .clear
         tableView.floatsGroupRows = false
         // Zero intercell spacing → tight rows like the BetterSettings tab list.
@@ -99,9 +103,9 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
             separator.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             separator.bottomAnchor.constraint(equalTo: settingsButton.topAnchor, constant: -Spacing.xs),
 
-            // Full-width, inset to align the gear under the nav-row glyphs.
-            settingsButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Spacing.sm),
-            settingsButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Spacing.sm),
+            // Full-width, inset 9pt to align the gear under the nav-row glyphs.
+            settingsButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Metrics.sidebarRowPadding),
+            settingsButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Metrics.sidebarRowPadding),
             settingsButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Spacing.sm),
             settingsButton.heightAnchor.constraint(equalToConstant: Metrics.sidebarFooterHeight),
         ])
@@ -172,6 +176,14 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
         return false
     }
 
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        let id = NSUserInterfaceItemIdentifier("NavRow")
+        if let reused = tableView.makeView(withIdentifier: id, owner: self) as? NavRowView { return reused }
+        let rv = NavRowView()
+        rv.identifier = id
+        return rv
+    }
+
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         switch rows[row] {
         case .header(let title):
@@ -186,7 +198,7 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
                 c.addSubview(tf)
                 c.textField = tf
                 NSLayoutConstraint.activate([
-                    tf.leadingAnchor.constraint(equalTo: c.leadingAnchor, constant: Spacing.sm),
+                    tf.leadingAnchor.constraint(equalTo: c.leadingAnchor, constant: Metrics.sidebarHeaderInset),
                     tf.centerYAnchor.constraint(equalTo: c.centerYAnchor),
                 ])
                 return c
@@ -239,5 +251,30 @@ final class SidebarHoverButton: NSButton {
 
     override func mouseExited(with event: NSEvent) {
         layer?.backgroundColor = .clear
+    }
+}
+
+/// Draws the rounded selection capsule itself (like BetterSettings' SidebarRowView)
+/// so the pill sits a precise 9pt from the sidebar edges instead of the wider
+/// default source-list inset. Accent fill on the key window, gray otherwise.
+final class NavRowView: NSTableRowView {
+    private let inset = Metrics.sidebarRowPadding
+    private let cornerRadius = Metrics.sidebarSelectionRadius
+
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard isSelected else { return }
+        let width = max(0, bounds.width - inset * 2)
+        guard width > 0, bounds.height > 0 else { return }
+        let rect = NSRect(x: inset, y: 0, width: width, height: bounds.height)
+        let path = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+        (isEmphasized ? NSColor.controlAccentColor : .unemphasizedSelectedContentBackgroundColor).setFill()
+        path.fill()
+    }
+
+    /// Force the cell's `backgroundStyle` to `.emphasized` only on the accent
+    /// (key-window) capsule, so the glyph + text invert to white there and stay
+    /// accent/label on the muted unemphasized capsule.
+    override var interiorBackgroundStyle: NSView.BackgroundStyle {
+        (isSelected && isEmphasized) ? .emphasized : .normal
     }
 }
