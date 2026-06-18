@@ -51,6 +51,8 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
         tableView.style = .sourceList
         tableView.backgroundColor = .clear
         tableView.floatsGroupRows = false
+        // Zero intercell spacing → tight rows like the BetterSettings tab list.
+        tableView.intercellSpacing = .zero
         tableView.dataSource = self
         tableView.delegate = self
         // Allow empty selection so `reloadData()` in `buildRows()` doesn't force an
@@ -101,7 +103,7 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
             settingsButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Spacing.sm),
             settingsButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Spacing.sm),
             settingsButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Spacing.sm),
-            settingsButton.heightAnchor.constraint(equalToConstant: Metrics.compactRowHeight),
+            settingsButton.heightAnchor.constraint(equalToConstant: Metrics.sidebarFooterHeight),
         ])
         view = container
 

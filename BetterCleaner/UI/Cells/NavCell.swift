@@ -47,8 +47,9 @@ final class NavCell: NSTableCellView {
         NSLayoutConstraint.activate([
             symbolView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Spacing.sm),
             symbolView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            symbolView.widthAnchor.constraint(equalToConstant: Metrics.badgeIconSize),
-            symbolView.heightAnchor.constraint(equalToConstant: Metrics.badgeIconSize),
+            // 16pt glyph centered in a 20pt container, matching BetterSettings.
+            symbolView.widthAnchor.constraint(equalToConstant: Metrics.badgeSize),
+            symbolView.heightAnchor.constraint(equalToConstant: Metrics.badgeSize),
 
             titleField.leadingAnchor.constraint(equalTo: symbolView.trailingAnchor, constant: Spacing.sm),
             titleField.centerYAnchor.constraint(equalTo: centerYAnchor),

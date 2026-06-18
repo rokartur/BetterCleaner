@@ -8,11 +8,12 @@ enum Metrics {
     /// Standard content list row (files, packages, apps).
     static let rowHeight: CGFloat = 44
     /// Compact row — sidebar rows, app/package list rows, collapsed group rows.
-    /// 34pt matches the native System Settings / Finder / Mail source-list density.
-    static let compactRowHeight: CGFloat = 34
-    /// Section-header row inside a content list. Kept equal-or-taller than the rows
-    /// it precedes so the header never reads as shorter than its content.
-    static let headerRowHeight: CGFloat = 32
+    /// 32pt matches the BetterSettings tab list (its source-list `tabHeight`).
+    static let compactRowHeight: CGFloat = 32
+    /// Section-header row inside a content list (compact uppercase caption header).
+    static let headerRowHeight: CGFloat = 28
+    /// Sidebar footer control (Settings) — restrained, like the BetterSettings footer.
+    static let sidebarFooterHeight: CGFloat = 28
 
     /// Corner radius for large glass surfaces (cards, floating action bars).
     static let glassCornerRadius: CGFloat = 16
