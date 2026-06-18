@@ -1,13 +1,12 @@
 import AppKit
 
-/// Master column for the Homebrew page: a segmented control switching between
-/// **Installed | Services | Taps**, a search box, an "install new" (+) button, a
-/// maintenance (…) menu button, and a refresh button, over a table of the active
-/// category. Selecting a row drives the detail pane via `onSelect`.
+/// Master column for the Homebrew pages. Shows one category at a time — chosen by the
+/// Homebrew sidebar rows (Installed / Services / Taps) via `setCategory(_:)` — with a
+/// search box, an "install new" (+) button (Installed only), a maintenance (…) menu,
+/// and a refresh button. Selecting a row drives the detail pane via `onSelect`.
 ///
-/// Mirrors `PackageListViewController`'s structure; the segmented control is the only
-/// real addition. Categories are cached and lazily loaded so toggling is instant
-/// after the first visit.
+/// Mirrors `PackageListViewController`. Categories are cached + lazily loaded so
+/// revisiting a tab is instant.
 @MainActor
 final class HomebrewListViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     var onSelect: ((HomebrewSelection?) -> Void)?
@@ -29,7 +28,6 @@ final class HomebrewListViewController: NSViewController, NSTableViewDataSource,
 
     private var filterText = ""
 
-    private let segmented = NSSegmentedControl()
     private let searchField = NSSearchField()
     private let addButton = NSButton()
     private let maintenanceButton = NSButton()
@@ -48,14 +46,6 @@ final class HomebrewListViewController: NSViewController, NSTableViewDataSource,
         container.blendingMode = .behindWindow
         container.state = .followsWindowActiveState
 
-        segmented.segmentCount = HomebrewCategory.allCases.count
-        for c in HomebrewCategory.allCases { segmented.setLabel(c.title, forSegment: c.rawValue) }
-        segmented.selectedSegment = 0
-        segmented.segmentDistribution = .fillEqually
-        segmented.target = self
-        segmented.action = #selector(segmentChanged)
-        segmented.translatesAutoresizingMaskIntoConstraints = false
-
         searchField.placeholderString = "Search"
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.target = self
@@ -72,7 +62,6 @@ final class HomebrewListViewController: NSViewController, NSTableViewDataSource,
         actionsRow.alignment = .centerY
         actionsRow.spacing = Spacing.sm
         actionsRow.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(segmented)
         container.addSubview(actionsRow)
 
         let column = NSTableColumn(identifier: Self.cellID)
@@ -81,7 +70,7 @@ final class HomebrewListViewController: NSViewController, NSTableViewDataSource,
         tableView.headerView = nil
         tableView.style = .inset
         tableView.backgroundColor = .clear
-        tableView.rowHeight = Metrics.rowHeight
+        tableView.rowHeight = 52
         tableView.dataSource = self
         tableView.delegate = self
 
@@ -96,11 +85,7 @@ final class HomebrewListViewController: NSViewController, NSTableViewDataSource,
         container.addSubview(loadingView)
 
         NSLayoutConstraint.activate([
-            segmented.topAnchor.constraint(equalTo: container.topAnchor, constant: Spacing.sm),
-            segmented.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Spacing.sm),
-            segmented.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Spacing.sm),
-
-            actionsRow.topAnchor.constraint(equalTo: segmented.bottomAnchor, constant: Spacing.sm),
+            actionsRow.topAnchor.constraint(equalTo: container.topAnchor, constant: Spacing.sm),
             actionsRow.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Spacing.sm),
             actionsRow.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Spacing.sm),
 
@@ -135,9 +120,24 @@ final class HomebrewListViewController: NSViewController, NSTableViewDataSource,
 
     // MARK: - Loading
 
+    /// Switch to a category (driven by the Homebrew sidebar rows) and load it.
+    func setCategory(_ c: HomebrewCategory) {
+        category = c
+        searchField.stringValue = ""
+        filterText = ""
+        updateToolbarVisibility()
+        onSelect?(nil)
+        load(c, force: false)
+    }
+
     func startIfNeeded() {
-        guard loaded.isEmpty else { return }
-        load(.installed, force: false)
+        updateToolbarVisibility()
+        load(category, force: false)
+    }
+
+    private func updateToolbarVisibility() {
+        // "Install new" only makes sense on the Installed list.
+        addButton.isHidden = category != .installed
     }
 
     /// Public re-scan used after a mutation: invalidate every cache and reload the
@@ -158,6 +158,10 @@ final class HomebrewListViewController: NSViewController, NSTableViewDataSource,
         emptyState.isHidden = true
         loadingView.startIndeterminate("Loading \(target.title.lowercased())…")
         onSelect?(nil)
+        // Clear the table immediately so the previous tab's rows don't show behind
+        // the spinner while the new category loads.
+        filteredPackages = []; filteredServices = []; filteredTaps = []
+        tableView.reloadData()
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let pkgs: [HomebrewPackage]
@@ -244,13 +248,6 @@ final class HomebrewListViewController: NSViewController, NSTableViewDataSource,
 
     // MARK: - Actions
 
-    @objc private func segmentChanged() {
-        guard let c = HomebrewCategory(rawValue: segmented.selectedSegment) else { return }
-        category = c
-        onSelect?(nil)
-        load(c, force: false)
-    }
-
     @objc private func refreshTapped() { load(category, force: true) }
     @objc private func addTapped() { onAddRequested?() }
     @objc private func maintenanceTapped() { onMaintenanceRequested?(maintenanceButton) }
@@ -270,24 +267,9 @@ final class HomebrewListViewController: NSViewController, NSTableViewDataSource,
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let cell = tableView.makeView(withIdentifier: Self.cellID, owner: self) as? HomebrewRowCell ?? HomebrewRowCell()
         switch category {
-        case .installed:
-            let p = filteredPackages[row]
-            var subtitle = p.installedVersion
-            if p.isOutdated, !p.latestVersion.isEmpty { subtitle += " → \(p.latestVersion)" }
-            if !p.description.isEmpty { subtitle += subtitle.isEmpty ? p.description : "  ·  \(p.description)" }
-            cell.configure(icon: icon(for: p), title: p.displayName, subtitle: subtitle,
-                           badgeText: p.isPinned ? "Pinned" : (p.isOutdated ? "Update" : nil),
-                           badgeColor: p.isPinned ? .systemGray : .systemOrange)
-        case .services:
-            let s = filteredServices[row]
-            cell.configure(icon: NSImage(systemSymbolName: "gearshape.2", accessibilityDescription: nil),
-                           title: s.name, subtitle: serviceSubtitle(s),
-                           badgeText: s.isRunning ? "Running" : nil, badgeColor: .systemGreen)
-        case .taps:
-            let t = filteredTaps[row]
-            cell.configure(icon: NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: nil),
-                           title: t.name, subtitle: "\(t.packageCount) package\(t.packageCount == 1 ? "" : "s")",
-                           badgeText: (t.official ?? false) ? "Official" : nil, badgeColor: .systemBlue)
+        case .installed: cell.configure(model(for: filteredPackages[row]))
+        case .services:  cell.configure(model(for: filteredServices[row]))
+        case .taps:      cell.configure(model(for: filteredTaps[row]))
         }
         return cell
     }
@@ -302,22 +284,44 @@ final class HomebrewListViewController: NSViewController, NSTableViewDataSource,
         }
     }
 
-    private func serviceSubtitle(_ s: ServiceInfo) -> String {
-        var parts = [s.status.capitalized]
-        if let user = s.user, !user.isEmpty { parts.append(user) }
-        return parts.joined(separator: "  ·  ")
+    // MARK: - Row models (TapHouse-style tile + tags + version)
+
+    private func model(for p: HomebrewPackage) -> HomebrewRowModel {
+        let leading: HomebrewRowModel.Leading
+        if p.isCask {
+            let appPath = "/Applications/\(p.displayName).app"
+            if FileManager.default.fileExists(atPath: appPath) {
+                leading = .appIcon(NSWorkspace.shared.icon(forFile: appPath))
+            } else {
+                leading = .glyph(symbol: "macwindow", color: .systemGray)
+            }
+        } else {
+            leading = .glyph(symbol: "shippingbox", color: .systemGreen)
+        }
+        var tags = [p.isCask ? "Cask" : "Formula"]
+        if !p.isCask, !p.installedOnRequest { tags.append("dep") }
+        var status: (String, NSColor)?
+        if p.isOutdated { status = ("Update", .systemOrange) }
+        else if p.isPinned { status = ("Pinned", .systemGray) }
+        return HomebrewRowModel(
+            leading: leading, title: p.displayName, tags: tags, status: status,
+            subtitle: p.description, version: p.installedVersion,
+            newVersion: p.isOutdated ? p.latestVersion : nil)
     }
 
-    /// Cask rows show the installed app's real icon when present; everything else
-    /// falls back to an SF Symbol.
-    private func icon(for pkg: HomebrewPackage) -> NSImage? {
-        if pkg.isCask {
-            let appPath = "/Applications/\(pkg.displayName).app"
-            if FileManager.default.fileExists(atPath: appPath) {
-                return NSWorkspace.shared.icon(forFile: appPath)
-            }
-            return NSImage(systemSymbolName: "macwindow", accessibilityDescription: nil)
-        }
-        return NSImage(systemSymbolName: "shippingbox", accessibilityDescription: nil)
+    private func model(for s: ServiceInfo) -> HomebrewRowModel {
+        HomebrewRowModel(
+            leading: .glyph(symbol: "gearshape.2", color: s.isRunning ? .systemGreen : .systemGray),
+            title: s.name,
+            status: s.isRunning ? ("Running", .systemGreen) : ("Stopped", .systemGray),
+            subtitle: s.user.map { "User: \($0)" } ?? "")
+    }
+
+    private func model(for t: TapInfo) -> HomebrewRowModel {
+        HomebrewRowModel(
+            leading: .glyph(symbol: "arrow.triangle.branch", color: .systemBlue),
+            title: t.name,
+            tags: (t.official ?? false) ? ["Official"] : [],
+            subtitle: "\(t.packageCount) package\(t.packageCount == 1 ? "" : "s")")
     }
 }

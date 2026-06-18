@@ -48,10 +48,10 @@ final class MainSplitViewController: NSSplitViewController {
     private var reclaimable: [String: Int64] = [:]
 
     /// Every selectable page other than the default Applications page.
-    private static let pageIDs: Set<String> = ["junk", "orphaned", "pkg", "homebrew", "devenv", "history"]
+    private static let pageIDs: Set<String> = ["junk", "orphaned", "pkg", "brew.installed", "brew.services", "brew.taps", "devenv", "history"]
     /// Pages that show the collapsible left sidebar (a master list in it). Every
     /// other page collapses the sidebar and takes the content area full-width.
-    private static let sidebarPageIDs: Set<String> = ["applications", "pkg", "homebrew"]
+    private static let sidebarPageIDs: Set<String> = ["applications", "pkg", "brew.installed", "brew.services", "brew.taps"]
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -285,10 +285,12 @@ final class MainSplitViewController: NSSplitViewController {
             sidebarContainer.setContent(packageListVC)
             container.setContent(packageDetailVC)
             packageListVC.startIfNeeded()
-        case "homebrew":
+        case "brew.installed", "brew.services", "brew.taps":
+            let category: HomebrewCategory = resolved == "brew.services" ? .services
+                : (resolved == "brew.taps" ? .taps : .installed)
             sidebarContainer.setContent(homebrewListVC)
             container.setContent(homebrewDetailVC)
-            homebrewListVC.startIfNeeded()
+            homebrewListVC.setCategory(category)
         case "devenv":
             container.setContent(developmentVC); developmentVC.startIfNeeded()
         case "history":

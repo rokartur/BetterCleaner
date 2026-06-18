@@ -32,8 +32,14 @@ enum NavCatalog {
 
     static let tools: [NavSection] = [
         NavSection(id: "pkg", title: "Packages", icon: "shippingbox.fill", enabled: true, color: .systemIndigo),
-        NavSection(id: "homebrew", title: "Homebrew", icon: "cup.and.saucer.fill", enabled: true, color: .systemBrown),
         NavSection(id: "devenv", title: "Development", icon: "hammer.fill", enabled: true, color: .systemRed),
+    ]
+
+    /// Homebrew management — its own group, one row per category (TapHouse-style).
+    static let homebrew: [NavSection] = [
+        NavSection(id: "brew.installed", title: "Installed", icon: "shippingbox.fill", enabled: true, color: .systemGreen),
+        NavSection(id: "brew.services", title: "Services", icon: "gearshape.2.fill", enabled: true, color: .systemTeal),
+        NavSection(id: "brew.taps", title: "Taps", icon: "arrow.triangle.branch", enabled: true, color: .systemBlue),
     ]
 
     static let system: [NavSection] = [
@@ -44,11 +50,12 @@ enum NavCatalog {
     static let groups: [(title: String, items: [NavSection])] = [
         ("Cleanup", cleanup),
         ("Tools", tools),
+        ("Homebrew", homebrew),
         ("System", system),
     ]
 
     /// Full sidebar order, flat.
-    static var all: [NavSection] { cleanup + tools + system }
+    static var all: [NavSection] { cleanup + tools + homebrew + system }
 
     static func section(id: String) -> NavSection? {
         all.first { $0.id == id }
