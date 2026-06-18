@@ -86,6 +86,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SettingsWindowPresenter.shared.show()
     }
 
+    @objc private func openAbout() {
+        SettingsWindowPresenter.shared.show(selecting: SettingsTabID.about)
+    }
+
     @objc private func checkForUpdates() {
         UpdateWindowPresenter.shared.show()
         Task { @MainActor in await GitHubUpdater.shared.checkForUpdates(force: true) }
@@ -109,7 +113,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenu = NSMenu()
         appMenuItem.submenu = appMenu
 
-        appMenu.addItem(withTitle: "About \(appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        // About opens the Settings window on its About tab (not the stock panel).
+        let aboutItem = NSMenuItem(title: "About \(appName)", action: #selector(openAbout), keyEquivalent: "")
+        aboutItem.target = self
+        appMenu.addItem(aboutItem)
         appMenu.addItem(.separator())
 
         let checkUpdatesItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")

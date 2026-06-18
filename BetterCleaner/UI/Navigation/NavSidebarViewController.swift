@@ -13,8 +13,6 @@ import AppKit
 final class NavSidebarViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     /// Fired when the user picks a page row. Not fired by `selectRow(_:)`.
     var onSelect: ((String) -> Void)?
-    /// Fired when the footer Settings button is clicked.
-    var onSettings: (() -> Void)?
 
     private enum Row {
         case header(String)
@@ -25,7 +23,6 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
 
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
-    private let footerRow = SidebarFooterRow()
     /// Top inset of the list, kept in sync with the traffic-light position so the
     /// first row clears the close button by the BetterSettings offset.
     private var scrollTopConstraint: NSLayoutConstraint?
@@ -74,12 +71,6 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
         scrollView.documentView = tableView
         container.addSubview(scrollView)
 
-        // Footer: a Settings entry styled exactly like a nav row — a gradient icon
-        // badge + title with the same hover capsule. No separator line.
-        footerRow.translatesAutoresizingMaskIntoConstraints = false
-        footerRow.onClick = { [weak self] in self?.onSettings?() }
-        container.addSubview(footerRow)
-
         // Offset the first row below the traffic lights by the BetterSettings
         // amount; refined in `viewDidLayout` from the real close-button position.
         let scrollTop = scrollView.topAnchor.constraint(equalTo: container.topAnchor, constant: 46)
@@ -88,12 +79,7 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
             scrollTop,
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: footerRow.topAnchor, constant: -Spacing.xs),
-
-            footerRow.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            footerRow.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            footerRow.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Spacing.sm),
-            footerRow.heightAnchor.constraint(equalToConstant: Metrics.compactRowHeight),
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         view = container
 
@@ -228,69 +214,6 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
         guard row >= 0, row < rows.count, case .section(let s) = rows[row] else { return }
         selectedID = s.id
         onSelect?(s.id)
-    }
-}
-
-/// The Settings footer, styled exactly like a nav row: a gradient icon badge +
-/// title laid out on the same content inset, with the same rounded hover capsule
-/// (drawn 9pt from the edges) so it reads as one of the sidebar rows.
-final class SidebarFooterRow: NSView {
-    var onClick: (() -> Void)?
-
-    private let badge = NavIconBadge()
-    private let titleField = NSTextField(labelWithString: "Settings")
-    private var tracking: NSTrackingArea?
-    private var hovering = false { didSet { if oldValue != hovering { needsDisplay = true } } }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-
-        badge.translatesAutoresizingMaskIntoConstraints = false
-        badge.configure(symbol: "gearshape.fill", color: .systemGray)
-        titleField.translatesAutoresizingMaskIntoConstraints = false
-        titleField.font = Typography.body
-        titleField.textColor = .labelColor
-        addSubview(badge)
-        addSubview(titleField)
-
-        let contentInset = Metrics.sidebarRowPadding + Metrics.sidebarContentPadding
-        NSLayoutConstraint.activate([
-            badge.leadingAnchor.constraint(equalTo: leadingAnchor, constant: contentInset),
-            badge.centerYAnchor.constraint(equalTo: centerYAnchor),
-            badge.widthAnchor.constraint(equalToConstant: Metrics.badgeSize),
-            badge.heightAnchor.constraint(equalToConstant: Metrics.badgeSize),
-            titleField.leadingAnchor.constraint(equalTo: badge.trailingAnchor, constant: Metrics.sidebarContentPadding),
-            titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds,
-                                  options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-                                  owner: self, userInfo: nil)
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    override func mouseEntered(with event: NSEvent) { hovering = true }
-    override func mouseExited(with event: NSEvent) { hovering = false }
-    override func mouseUp(with event: NSEvent) {
-        if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick?() }
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard hovering else { return }
-        let inset = Metrics.sidebarRowPadding
-        let rect = NSRect(x: inset, y: 0, width: max(0, bounds.width - inset * 2), height: bounds.height)
-        let path = NSBezierPath(roundedRect: rect, xRadius: Metrics.sidebarSelectionRadius, yRadius: Metrics.sidebarSelectionRadius)
-        NSColor.quaternaryLabelColor.setFill()
-        path.fill()
     }
 }
 

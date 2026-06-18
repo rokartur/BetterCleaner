@@ -89,7 +89,6 @@ final class MainSplitViewController: NSSplitViewController {
         // programmatic page set can't re-enter `select(_:)` before the other split
         // items are in place.
         navVC.onSelect = { [weak self] id in self?.select(id) }
-        navVC.onSettings = { SettingsWindowPresenter.shared.show() }
         select("applications")
         refreshApps()
     }
