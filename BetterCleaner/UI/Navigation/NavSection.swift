@@ -4,39 +4,41 @@ import AppKit
 struct NavSection {
     let id: String
     let title: String
-    /// SF Symbol rendered white inside the gradient badge.
+    /// Monochrome SF Symbol, rendered as a template image in the sidebar row.
     let icon: String
     let enabled: Bool
-    /// Badge tint — the macOS-System-Settings-style colored icon tile.
-    let tint: NSColor
 
-    init(id: String, title: String, icon: String, enabled: Bool, tint: NSColor) {
+    init(id: String, title: String, icon: String, enabled: Bool) {
         self.id = id
         self.title = title
         self.icon = icon
         self.enabled = enabled
-        self.tint = tint
     }
 }
 
-/// The sidebar's section catalog, grouped into Cleanup + Tools. Each section
-/// carries a colored badge tint matching the BetterSettings sidebar look.
+/// The sidebar's page catalog, split into Cleanup / Tools / System groups. Icons
+/// are plain monochrome SF Symbols (no colored tiles) so the sidebar reads native.
 enum NavCatalog {
-    // System dynamic colors (not fixed hex) so each badge uses Apple's exact
-    // palette and adapts to light/dark, matching the System Settings icon tiles.
     static let cleanup: [NavSection] = [
-        NavSection(id: "applications", title: "Applications", icon: "square.grid.2x2.fill", enabled: true, tint: .systemBlue),
-        NavSection(id: "junk", title: "System Junk", icon: "trash.fill", enabled: true, tint: .systemOrange),
-        NavSection(id: "orphaned", title: "Orphaned Files", icon: "folder.fill.badge.questionmark", enabled: true, tint: .systemPurple),
+        NavSection(id: "applications", title: "Applications", icon: "square.grid.2x2", enabled: true),
+        NavSection(id: "junk", title: "System Junk", icon: "trash", enabled: true),
+        NavSection(id: "orphaned", title: "Orphaned Files", icon: "folder.badge.questionmark", enabled: true),
     ]
 
     static let tools: [NavSection] = [
-        NavSection(id: "pkg", title: "Packages", icon: "shippingbox.fill", enabled: true, tint: .systemIndigo),
-        NavSection(id: "devenv", title: "Development", icon: "wrench.and.screwdriver.fill", enabled: true, tint: .systemRed),
+        NavSection(id: "pkg", title: "Packages", icon: "shippingbox", enabled: true),
+        NavSection(id: "devenv", title: "Development", icon: "wrench.and.screwdriver", enabled: true),
     ]
 
     static let system: [NavSection] = [
-        NavSection(id: "history", title: "Delete History", icon: "clock.arrow.circlepath", enabled: true, tint: .systemTeal),
+        NavSection(id: "history", title: "Delete History", icon: "clock.arrow.circlepath", enabled: true),
+    ]
+
+    /// The grouped sidebar order — each group renders under its own header.
+    static let groups: [(title: String, items: [NavSection])] = [
+        ("Cleanup", cleanup),
+        ("Tools", tools),
+        ("System", system),
     ]
 
     /// Full sidebar order, flat.

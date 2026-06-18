@@ -31,7 +31,7 @@ final class DevelopmentViewController: NSViewController {
         fileListVC.onRescanRequested = { [weak self] in self?.rescan() }
         fileListVC.onReclaimableChanged = { [weak self] bytes in self?.onReclaimable?(bytes) }
         fileListVC.enableSearch(placeholder: "Search caches…")
-        if let s = NavCatalog.section(id: "devenv") { fileListVC.setSectionBadge(symbol: s.icon, tint: s.tint) }
+        if let s = NavCatalog.section(id: "devenv") { fileListVC.setSectionBadge(symbol: s.icon) }
     }
 
     func startIfNeeded() {

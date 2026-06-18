@@ -24,10 +24,10 @@ final class PackageListViewController: NSViewController, NSTableViewDataSource, 
     }()
 
     override func loadView() {
-        // Sidebar material full-height, continuous under the unified toolbar —
-        // same treatment as the app list.
+        // The middle master-list column — content material (not sidebar vibrancy),
+        // continuous under the unified toolbar, same treatment as the app list.
         let container = NSVisualEffectView()
-        container.material = .sidebar
+        container.material = .contentBackground
         container.blendingMode = .behindWindow
         container.state = .followsWindowActiveState
 
@@ -62,7 +62,7 @@ final class PackageListViewController: NSViewController, NSTableViewDataSource, 
         tableView.addTableColumn(column)
         tableView.headerView = nil
         tableView.style = .inset
-        // Transparent so the sidebar's `.sidebar` material shows through the list.
+        // Transparent so the column's content material shows through the list.
         tableView.backgroundColor = .clear
         tableView.rowHeight = Metrics.rowHeight
         tableView.dataSource = self

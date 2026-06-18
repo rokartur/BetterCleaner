@@ -106,17 +106,17 @@ final class PageHeaderView: NSView {
 
     // MARK: - Badge API
 
-    /// Section mode: a plain tinted SF Symbol (Junk / Orphaned / Packages /
-    /// Development / History). Tint + symbol come from `NavCatalog` so the header
-    /// and toolbar page menu can't drift.
-    func setBadge(symbol: String, tint: NSColor) {
+    /// Section mode: a plain monochrome SF Symbol (Junk / Orphaned / Packages /
+    /// Development / History). The symbol comes from `NavCatalog` so the header
+    /// and the sidebar row can't drift.
+    func setBadge(symbol: String) {
         mode = .section
         applyMode()
         let config = NSImage.SymbolConfiguration(pointSize: Self.sectionIconSize * 0.82, weight: .semibold)
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?.withSymbolConfiguration(config)
         image?.isTemplate = true
         iconView.image = image
-        iconView.contentTintColor = tint
+        iconView.contentTintColor = .labelColor
         iconView.layer?.cornerRadius = 0
         iconView.isHidden = (image == nil)
     }

@@ -33,7 +33,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
             // plain "Move to Trash" label dangerously understates it.
             trashButton.title = (uninstallContext != nil) ? "Uninstall…" : "Move to Trash"
             // Applications detail shows the real app icon as the header badge;
-            // junk/orphan/dev lists keep their gradient section badge (set via
+            // junk/orphan/dev lists keep their monochrome section badge (set via
             // `setSectionBadge`), so only override when an app is in context.
             if let app = uninstallContext {
                 header.setBadge(appIcon: IconCache.icon(forPath: app.url.path))
@@ -43,10 +43,10 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         }
     }
 
-    /// The section's gradient badge (Junk / Orphaned / Development), set by the
+    /// The section's monochrome badge (Junk / Orphaned / Development), set by the
     /// owning wrapper from `NavCatalog` so the header matches the sidebar.
-    func setSectionBadge(symbol: String, tint: NSColor) {
-        header.setBadge(symbol: symbol, tint: tint)
+    func setSectionBadge(symbol: String) {
+        header.setBadge(symbol: symbol)
     }
 
     /// Add an "Assign to App…" row context-menu item that calls `handler` with the

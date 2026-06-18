@@ -33,12 +33,11 @@ final class AppListViewController: NSViewController, NSTableViewDataSource, NSTa
     private var sizeGeneration = 0
 
     override func loadView() {
-        // Drive the column's own `.sidebar` material full-height so it's continuous
-        // under the unified toolbar's top strip. Without this, the split's automatic
-        // sidebar vibrancy doesn't extend into the titlebar band (the split is nested
-        // inside RootViewController), leaving a lighter seam at the top of the column.
+        // This is the middle master-list column (between the navigation sidebar and
+        // the detail), so it reads as content — a `.contentBackground` material, not
+        // the sidebar's vibrancy — and stays continuous under the unified toolbar.
         let container = NSVisualEffectView()
-        container.material = .sidebar
+        container.material = .contentBackground
         container.blendingMode = .behindWindow
         container.state = .followsWindowActiveState
 
@@ -47,7 +46,7 @@ final class AppListViewController: NSViewController, NSTableViewDataSource, NSTa
         tableView.addTableColumn(column)
         tableView.headerView = nil
         tableView.style = .inset
-        // Transparent so the column's `.sidebar` material shows through the list
+        // Transparent so the column's content material shows through the list
         // exactly like it does behind the search header — otherwise the table paints
         // an opaque controlBackground and the list reads a different colour.
         tableView.backgroundColor = .clear

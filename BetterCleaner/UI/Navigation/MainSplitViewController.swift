@@ -10,13 +10,18 @@ import AppKit
 /// halves is this controller.
 @MainActor
 final class MainSplitViewController: NSSplitViewController {
+    /// The primary navigation: a native source-list sidebar of grouped page tabs.
+    /// It drives `select(_:)`; programmatic page changes mirror back onto it.
+    private let navVC = NavSidebarViewController()
+    private var navItem: NSSplitViewItem!
+
     private let appListVC = AppListViewController()
-    /// The left sidebar hosts a swappable master list: the app list (Applications)
+    /// The middle column hosts a swappable master list: the app list (Applications)
     /// or the package receipt list (Packages). Both pages share the one collapsible
-    /// sidebar column instead of nesting their own split view.
+    /// content-list column; every other page collapses it.
     private let sidebarContainer = ContainerViewController()
     private let container = ContainerViewController()
-    private var sidebarItem: NSSplitViewItem!
+    private var contentListItem: NSSplitViewItem!
 
     /// The Applications page's detail pane (per-app leftover files + Uninstall).
     private let applicationsFileListVC = FileListViewController()
@@ -36,13 +41,6 @@ final class MainSplitViewController: NSSplitViewController {
     /// Cancels the in-flight leftover scan when the user selects another app.
     private var currentScanToken: ScanToken?
 
-    /// Fired when a reclaimable section's size updates, so the toolbar page menu
-    /// can show it next to that page's name.
-    var onSectionSizeChanged: ((_ id: String, _ bytes: Int64) -> Void)?
-    /// Fired after the visible page changes (deep links / drop / coordinator drive
-    /// `select` too), so the toolbar page menu mirrors the selection.
-    var onSectionChanged: ((_ id: String) -> Void)?
-
     private var reclaimable: [String: Int64] = [:]
 
     /// Every selectable page other than the default Applications page.
@@ -54,24 +52,42 @@ final class MainSplitViewController: NSSplitViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        // Remember the user's sidebar width across launches.
+        // Remember the user's split widths across launches.
         splitView.autosaveName = "BetterCleanerMainSplit"
 
-        // The app list as a real sidebar item → automatic vibrancy material
-        // (System-Settings look), collapsible via the toolbar toggle.
-        sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarContainer)
-        sidebarItem.minimumThickness = 240
-        sidebarItem.maximumThickness = 420
-        sidebarItem.canCollapse = true
-        addSplitViewItem(sidebarItem)
+        // Column 1 — the navigation sidebar (grouped page tabs + Settings footer). A
+        // real sidebar item → automatic vibrancy + the traffic lights float over it
+        // (System Settings look). Always visible: it's the only navigation, so it
+        // can't be collapsed.
+        navItem = NSSplitViewItem(sidebarWithViewController: navVC)
+        navItem.minimumThickness = 200
+        navItem.maximumThickness = 260
+        navItem.canCollapse = false
+        addSplitViewItem(navItem)
 
+        // Column 2 — the master list (app list / package receipts) as a content-list
+        // column, shown only on the Applications + Packages pages and collapsed
+        // everywhere else.
+        contentListItem = NSSplitViewItem(contentListWithViewController: sidebarContainer)
+        contentListItem.minimumThickness = 240
+        contentListItem.maximumThickness = 420
+        contentListItem.canCollapse = true
+        addSplitViewItem(contentListItem)
+
+        // Column 3 — the detail content, swapped per page.
         let contentItem = NSSplitViewItem(viewController: container)
-        contentItem.minimumThickness = 520
+        contentItem.minimumThickness = 420
         addSplitViewItem(contentItem)
 
         wireReclaimable()
         wireApplications()
         wirePackages()
+
+        // Wire the nav's callbacks only after every column exists, so the first
+        // programmatic page set can't re-enter `select(_:)` before the other split
+        // items are in place.
+        navVC.onSelect = { [weak self] id in self?.select(id) }
+        navVC.onSettings = { SettingsWindowPresenter.shared.show() }
         select("applications")
         refreshApps()
     }
@@ -209,7 +225,7 @@ final class MainSplitViewController: NSSplitViewController {
 
     private func setReclaimable(_ bytes: Int64, for id: String) {
         reclaimable[id] = bytes
-        onSectionSizeChanged?(id, bytes)
+        navVC.setSize(id, bytes)
     }
 
     /// Scan every reclaimable section (Junk / Orphaned / Development) off-screen to
@@ -232,7 +248,8 @@ final class MainSplitViewController: NSSplitViewController {
 
     func select(_ id: String) {
         let resolved = Self.pageIDs.contains(id) ? id : "applications"
-        setSidebarCollapsed(!Self.sidebarPageIDs.contains(resolved))
+        navVC.selectRow(resolved)
+        setContentListCollapsed(!Self.sidebarPageIDs.contains(resolved))
         switch resolved {
         case "junk":
             container.setContent(cleanupVC); cleanupVC.startIfNeeded()
@@ -253,16 +270,15 @@ final class MainSplitViewController: NSSplitViewController {
                 applicationsFileListVC.showPlaceholder("Select an app to see the files it left behind.")
             }
         }
-        onSectionChanged?(resolved)
     }
 
-    /// Collapse/expand the app-list sidebar. Set the property directly — the
-    /// `animator()` proxy silently no-ops here on macOS 26, leaving the app list
+    /// Collapse/expand the middle master-list column. Set the property directly —
+    /// the `animator()` proxy silently no-ops here on macOS 26, leaving the list
     /// visible on section pages. Guarded so a repeat selection of the current page
     /// never jitters the divider.
-    private func setSidebarCollapsed(_ collapsed: Bool) {
-        guard sidebarItem.isCollapsed != collapsed else { return }
-        sidebarItem.isCollapsed = collapsed
+    private func setContentListCollapsed(_ collapsed: Bool) {
+        guard contentListItem.isCollapsed != collapsed else { return }
+        contentListItem.isCollapsed = collapsed
     }
 
     // MARK: - Passthroughs (AppCoordinator / toolbar)

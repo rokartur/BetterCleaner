@@ -67,7 +67,7 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
     }
 
     override func loadView() {
-        if let s = NavCatalog.section(id: "history") { header.setBadge(symbol: s.icon, tint: s.tint) }
+        if let s = NavCatalog.section(id: "history") { header.setBadge(symbol: s.icon) }
         header.title = "Delete History"
         header.translatesAutoresizingMaskIntoConstraints = false
 

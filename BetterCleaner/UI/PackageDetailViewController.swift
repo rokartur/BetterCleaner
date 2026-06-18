@@ -22,7 +22,7 @@ final class PackageDetailViewController: NSViewController, NSTableViewDataSource
     private lazy var uninstallButton = Buttons.destructive("Uninstall", target: self, action: #selector(uninstall))
 
     override func loadView() {
-        if let s = NavCatalog.section(id: "pkg") { header.setBadge(symbol: s.icon, tint: s.tint) }
+        if let s = NavCatalog.section(id: "pkg") { header.setBadge(symbol: s.icon) }
         header.translatesAutoresizingMaskIntoConstraints = false
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("file"))
