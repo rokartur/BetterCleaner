@@ -19,6 +19,9 @@ final class MainWindowController: NSWindowController {
         window.title = "BetterCleaner"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        // Drag the window from any non-interactive background area (sidebar empty
+        // space, detail backgrounds) — there's no toolbar to grab anymore.
+        window.isMovableByWindowBackground = true
         window.minSize = NSSize(width: 880, height: 500)
         super.init(window: window)
 

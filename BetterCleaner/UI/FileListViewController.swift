@@ -247,7 +247,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
             // .fullSizeContentView with a unified toolbar, so root.topAnchor sits
             // *behind* the toolbar and the header text would render under the
             // toolbar buttons. The safe area already excludes titlebar+toolbar.
-            topStack.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor, constant: Spacing.md),
+            topStack.topAnchor.constraint(equalTo: root.topAnchor, constant: Spacing.md),
             topStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
             topStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
             // Stretch the header to the full stack width so its trailing badge /

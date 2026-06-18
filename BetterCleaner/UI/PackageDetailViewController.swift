@@ -64,7 +64,7 @@ final class PackageDetailViewController: NSViewController, NSTableViewDataSource
         let root = NSView()
         for v in [header, scrollView, footer, emptyState, loadingView] { root.addSubview(v) }
         NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor, constant: Spacing.md),
+            header.topAnchor.constraint(equalTo: root.topAnchor, constant: Spacing.md),
             header.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
             header.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
             scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Spacing.md),

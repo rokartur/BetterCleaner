@@ -102,7 +102,7 @@ final class AppListViewController: NSViewController, NSTableViewDataSource, NSTa
         emptyState.isHidden = true
         container.addSubview(emptyState)
         NSLayoutConstraint.activate([
-            topBar.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
+            topBar.topAnchor.constraint(equalTo: container.topAnchor, constant: Spacing.xs),
             topBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             topBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
 

@@ -98,7 +98,7 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
         let root = NSView()
         for v in [header, searchField, clearButton, batchScroll, fileScroll, footer, emptyState, loadingView] { root.addSubview(v) }
         NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor, constant: Spacing.md),
+            header.topAnchor.constraint(equalTo: root.topAnchor, constant: Spacing.md),
             header.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
             header.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
 

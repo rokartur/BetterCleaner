@@ -79,7 +79,7 @@ final class PackageListViewController: NSViewController, NSTableViewDataSource, 
         container.addSubview(loadingView)
 
         NSLayoutConstraint.activate([
-            topBar.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
+            topBar.topAnchor.constraint(equalTo: container.topAnchor, constant: Spacing.xs),
             topBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             topBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
 
