@@ -92,6 +92,9 @@ final class NavIconBadge: NSView {
 
     private let gradientLayer = CAGradientLayer()
     private let symbolView = NSImageView()
+    /// The dynamic page color, kept so the (static cgColor) layer fills can be
+    /// re-resolved when the system appearance flips light<->dark.
+    private var tileColor: NSColor = .systemBlue
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -128,15 +131,28 @@ final class NavIconBadge: NSView {
         layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: Metrics.badgeCornerRadius, cornerHeight: Metrics.badgeCornerRadius, transform: nil)
     }
 
+    // CALayer color properties are static cgColor snapshots; rebuild them so a
+    // dynamic system color (.systemBlue/.systemOrange/…) re-resolves on a
+    // light<->dark switch instead of staying frozen until the next reload.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyTileColors()
+    }
+
     func configure(symbol: String, color: NSColor) {
         // ~11pt glyph in the 20pt tile — smaller, with System-Settings-like padding.
         let cfg = NSImage.SymbolConfiguration(pointSize: Metrics.badgeIconSize - 5, weight: .medium)
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(cfg)
         image?.isTemplate = true
         symbolView.image = image
+        tileColor = color
+        applyTileColors()
+    }
+
+    private func applyTileColors() {
         // Lighten the top edge for the System Settings tile sheen.
-        let top = color.blended(withFraction: 0.18, of: .white) ?? color
-        gradientLayer.colors = [top.cgColor, color.cgColor]
+        let top = tileColor.blended(withFraction: 0.18, of: .white) ?? tileColor
+        gradientLayer.colors = [top.cgColor, tileColor.cgColor]
         layer?.borderWidth = 0.5
         layer?.borderColor = NSColor.white.withAlphaComponent(0.20).cgColor
     }
