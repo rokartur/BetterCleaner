@@ -180,7 +180,8 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
                 c.identifier = Self.headerCellID
                 let tf = NSTextField(labelWithString: "")
                 tf.translatesAutoresizingMaskIntoConstraints = false
-                tf.font = Typography.semibold(.caption1)
+                // Finder sidebar group-header style: title-case, semibold, gray.
+                tf.font = Typography.semibold(.subheadline)
                 tf.textColor = .secondaryLabelColor
                 c.addSubview(tf)
                 c.textField = tf
@@ -190,7 +191,7 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
                 ])
                 return c
             }()
-            cell.textField?.stringValue = title.uppercased()
+            cell.textField?.stringValue = title
             return cell
 
         case .section(let s):
