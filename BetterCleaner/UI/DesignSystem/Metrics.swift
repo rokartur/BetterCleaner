@@ -7,10 +7,12 @@ import CoreGraphics
 enum Metrics {
     /// Standard content list row (files, packages, apps).
     static let rowHeight: CGFloat = 44
-    /// Compact row — sidebar sections, collapsed group rows.
-    static let compactRowHeight: CGFloat = 32
-    /// Section-header row inside a content list.
-    static let headerRowHeight: CGFloat = 28
+    /// Compact row — sidebar rows, app/package list rows, collapsed group rows.
+    /// 34pt matches the native System Settings / Finder / Mail source-list density.
+    static let compactRowHeight: CGFloat = 34
+    /// Section-header row inside a content list. Kept equal-or-taller than the rows
+    /// it precedes so the header never reads as shorter than its content.
+    static let headerRowHeight: CGFloat = 32
 
     /// Corner radius for large glass surfaces (cards, floating action bars).
     static let glassCornerRadius: CGFloat = 16
@@ -19,12 +21,25 @@ enum Metrics {
     /// Corner radius for small icon badges.
     static let badgeCornerRadius: CGFloat = 6
 
-    /// Sidebar / list icon-badge sizing.
+    /// Sidebar / list icon-badge sizing. 16pt matches the native sidebar glyph.
     static let badgeSize: CGFloat = 20
-    static let badgeIconSize: CGFloat = 15
+    static let badgeIconSize: CGFloat = 16
 
     /// File/app row icon size.
     static let listIconSize: CGFloat = 24
+
+    /// Centered "nothing here" glyph + its prose wrap width.
+    static let emptyStateIconSize: CGFloat = 38
+    static let emptyStateMaxWidth: CGFloat = 320
+    /// Drag-and-drop overlay glyph.
+    static let dragDropIconSize: CGFloat = 44
+    /// Compact path rows (Exclusions settings list).
+    static let pathRowHeight: CGFloat = 26
+    /// Delete History master/detail rows (two-line cells, slightly taller).
+    static let historyFileRowHeight: CGFloat = 48
+    static let historyBatchRowHeight: CGFloat = 56
+    /// Fixed master-column width in master/detail panes.
+    static let masterDetailWidth: CGFloat = 320
 
     static let minWindow = CGSize(width: 880, height: 500)
 }

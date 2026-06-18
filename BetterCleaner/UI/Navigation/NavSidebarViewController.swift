@@ -24,7 +24,7 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
 
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
-    private let settingsButton = NSButton()
+    private let settingsButton = SidebarHoverButton()
     private var rows: [Row] = []
     /// Reclaimable bytes per page id (Junk / Orphaned / Development), shown trailing.
     private var sizes: [String: Int64] = [:]
@@ -65,14 +65,15 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
         scrollView.documentView = tableView
         container.addSubview(scrollView)
 
-        // Footer: Settings lives here now that the toolbar is gone. A borderless
-        // gear + label pinned to the bottom of the sidebar, above a hairline.
+        // Footer: Settings lives here now that the toolbar is gone. A full-width
+        // gear + label row that's flat at rest and shows a rounded hover fill so it
+        // reads as clickable (System Settings footer affordance), above a hairline.
         settingsButton.title = "Settings"
-        settingsButton.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")
+        settingsButton.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")?
+            .withSymbolConfiguration(.init(pointSize: Metrics.badgeIconSize, weight: .regular))
         settingsButton.imagePosition = .imageLeading
         settingsButton.imageHugsTitle = true
         settingsButton.isBordered = false
-        settingsButton.bezelStyle = .inline
         settingsButton.contentTintColor = .secondaryLabelColor
         settingsButton.font = Typography.body
         settingsButton.alignment = .left
@@ -94,10 +95,13 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
 
             separator.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            separator.bottomAnchor.constraint(equalTo: settingsButton.topAnchor, constant: -Spacing.sm),
+            separator.bottomAnchor.constraint(equalTo: settingsButton.topAnchor, constant: -Spacing.xs),
 
-            settingsButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Spacing.md),
-            settingsButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Spacing.md),
+            // Full-width, inset to align the gear under the nav-row glyphs.
+            settingsButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Spacing.sm),
+            settingsButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Spacing.sm),
+            settingsButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Spacing.sm),
+            settingsButton.heightAnchor.constraint(equalToConstant: Metrics.compactRowHeight),
         ])
         view = container
 
@@ -180,7 +184,7 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
                 c.textField = tf
                 NSLayoutConstraint.activate([
                     tf.leadingAnchor.constraint(equalTo: c.leadingAnchor, constant: Spacing.sm),
-                    tf.bottomAnchor.constraint(equalTo: c.bottomAnchor, constant: -Spacing.xs),
+                    tf.centerYAnchor.constraint(equalTo: c.centerYAnchor),
                 ])
                 return c
             }()
@@ -204,5 +208,33 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
         guard row >= 0, row < rows.count, case .section(let s) = rows[row] else { return }
         selectedID = s.id
         onSelect?(s.id)
+    }
+}
+
+/// A quiet, full-width sidebar-footer button: borderless at rest, with a subtle
+/// rounded hover fill so it reads as clickable like the controls in a native
+/// System Settings footer.
+final class SidebarHoverButton: NSButton {
+    private var tracking: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: bounds,
+                                  options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        wantsLayer = true
+        layer?.cornerCurve = .continuous
+        layer?.cornerRadius = Metrics.badgeCornerRadius
+        layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        layer?.backgroundColor = .clear
     }
 }

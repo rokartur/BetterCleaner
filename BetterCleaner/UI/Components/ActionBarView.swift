@@ -29,7 +29,7 @@ final class ActionBarView: NSView {
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = Spacing.sm
-        stack.edgeInsets = NSEdgeInsets(top: Spacing.sm, left: Spacing.md, bottom: Spacing.sm, right: Spacing.md)
+        stack.edgeInsets = NSEdgeInsets(top: Spacing.md, left: Spacing.lg, bottom: Spacing.md, right: Spacing.lg)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         for v in leading { stack.addArrangedSubview(v) }

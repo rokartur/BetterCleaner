@@ -14,7 +14,7 @@ final class DropZoneOverlayView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
 
-        let cfg = NSImage.SymbolConfiguration(pointSize: 44, weight: .regular)
+        let cfg = NSImage.SymbolConfiguration(pointSize: Metrics.dragDropIconSize, weight: .regular)
         iconView.image = NSImage(systemSymbolName: "arrow.down.app", accessibilityDescription: nil)?.withSymbolConfiguration(cfg)
         iconView.contentTintColor = .controlAccentColor
         iconView.translatesAutoresizingMaskIntoConstraints = false

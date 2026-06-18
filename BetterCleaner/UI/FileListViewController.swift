@@ -243,17 +243,16 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         for v in [topStack, scrollView, footer, emptyState, loadingView] { root.addSubview(v) }
 
         NSLayoutConstraint.activate([
-            // Pin to the safe area, not root.topAnchor — the window is
-            // .fullSizeContentView with a unified toolbar, so root.topAnchor sits
-            // *behind* the toolbar and the header text would render under the
-            // toolbar buttons. The safe area already excludes titlebar+toolbar.
+            // This pane sits right of the nav sidebar (no traffic lights over it), so
+            // pin flush to the top edge — no titlebar-height gap. Spacing.md/lg give
+            // the standard page margins.
             topStack.topAnchor.constraint(equalTo: root.topAnchor, constant: Spacing.md),
             topStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
             topStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
-            // Stretch the header to the full stack width so its trailing badge /
-            // truncation behaves as it did when pinned directly to the root.
+            // Stretch the header + search field to the full stack width so they track
+            // the pane as the window resizes (native multi-pane search behavior).
             header.widthAnchor.constraint(equalTo: topStack.widthAnchor),
-            searchField.widthAnchor.constraint(equalToConstant: 280),
+            searchField.widthAnchor.constraint(equalTo: topStack.widthAnchor),
 
             scrollView.topAnchor.constraint(equalTo: topStack.bottomAnchor, constant: Spacing.md),
             scrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),

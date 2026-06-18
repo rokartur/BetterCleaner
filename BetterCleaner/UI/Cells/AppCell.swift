@@ -46,7 +46,7 @@ final class AppCell: NSTableCellView {
             nameField.centerYAnchor.constraint(equalTo: centerYAnchor),
             nameField.trailingAnchor.constraint(lessThanOrEqualTo: sizeField.leadingAnchor, constant: -Spacing.sm),
 
-            sizeField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Spacing.md),
+            sizeField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Spacing.sm),
             sizeField.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }

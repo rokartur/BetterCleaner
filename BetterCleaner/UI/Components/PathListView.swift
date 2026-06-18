@@ -31,7 +31,7 @@ final class PathListView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         tableView.addTableColumn(column)
         tableView.headerView = nil
         tableView.style = .inset
-        tableView.rowHeight = 26
+        tableView.rowHeight = Metrics.pathRowHeight
         tableView.dataSource = self
         tableView.delegate = self
         tableView.allowsEmptySelection = true
@@ -54,7 +54,7 @@ final class PathListView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let footer = NSStackView(views: [addButton, removeButton, spacer])
         footer.orientation = .horizontal
-        footer.spacing = 8
+        footer.spacing = Spacing.sm
         footer.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(scrollView)
@@ -131,7 +131,7 @@ final class PathListView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         let field = NSTextField(labelWithString: "")
         field.translatesAutoresizingMaskIntoConstraints = false
         field.lineBreakMode = .byTruncatingMiddle
-        field.font = .systemFont(ofSize: 12)
+        field.font = Typography.caption
         cell.addSubview(field)
         cell.textField = field
         NSLayoutConstraint.activate([

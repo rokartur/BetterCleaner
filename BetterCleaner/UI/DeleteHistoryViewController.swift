@@ -78,8 +78,8 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
         (searchField.cell as? NSSearchFieldCell)?.sendsSearchStringImmediately = false
         clearButton.translatesAutoresizingMaskIntoConstraints = false
 
-        configure(batchTable, id: Self.batchCellID, scroll: batchScroll, height: 56)
-        configure(fileTable, id: Self.fileCellID, scroll: fileScroll, height: 48)
+        configure(batchTable, id: Self.batchCellID, scroll: batchScroll, height: Metrics.historyBatchRowHeight)
+        configure(fileTable, id: Self.fileCellID, scroll: fileScroll, height: Metrics.historyFileRowHeight)
         fileTable.doubleAction = #selector(revealFile)
         fileTable.target = self
         fileTable.menu = makeFileMenu()
@@ -116,7 +116,7 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
             batchScroll.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: Spacing.md),
             batchScroll.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
             batchScroll.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -Spacing.sm),
-            batchScroll.widthAnchor.constraint(equalToConstant: 320),
+            batchScroll.widthAnchor.constraint(equalToConstant: Metrics.masterDetailWidth),
 
             fileScroll.topAnchor.constraint(equalTo: batchScroll.topAnchor),
             fileScroll.leadingAnchor.constraint(equalTo: batchScroll.trailingAnchor, constant: Spacing.md),

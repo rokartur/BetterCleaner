@@ -26,7 +26,7 @@ final class EmptyStateView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
 
         iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        iconView.symbolConfiguration = .init(pointSize: 38, weight: .regular)
+        iconView.symbolConfiguration = .init(pointSize: Metrics.emptyStateIconSize, weight: .regular)
         iconView.contentTintColor = .tertiaryLabelColor
 
         titleLabel.font = Typography.semibold(.title3)
@@ -37,7 +37,7 @@ final class EmptyStateView: NSView {
         messageLabel.font = Typography.subheadline
         messageLabel.textColor = .tertiaryLabelColor
         messageLabel.alignment = .center
-        messageLabel.preferredMaxLayoutWidth = 320
+        messageLabel.preferredMaxLayoutWidth = Metrics.emptyStateMaxWidth
         messageLabel.isHidden = true
 
         actionButton.isHidden = true

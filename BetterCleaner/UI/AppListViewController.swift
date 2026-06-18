@@ -289,8 +289,10 @@ final class AppListViewController: NSViewController, NSTableViewDataSource, NSTa
                 c.addSubview(tf)
                 c.textField = tf
                 NSLayoutConstraint.activate([
-                    tf.leadingAnchor.constraint(equalTo: c.leadingAnchor, constant: Spacing.xs),
-                    tf.bottomAnchor.constraint(equalTo: c.bottomAnchor, constant: -Spacing.xs),
+                    // Indent to the app-row text edge and center vertically so the
+                    // group label lines up with rows like a Finder/Music source list.
+                    tf.leadingAnchor.constraint(equalTo: c.leadingAnchor, constant: Spacing.sm),
+                    tf.centerYAnchor.constraint(equalTo: c.centerYAnchor),
                 ])
                 return c
             }()

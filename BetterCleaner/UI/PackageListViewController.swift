@@ -64,7 +64,8 @@ final class PackageListViewController: NSViewController, NSTableViewDataSource, 
         tableView.style = .inset
         // Transparent so the column's content material shows through the list.
         tableView.backgroundColor = .clear
-        tableView.rowHeight = Metrics.rowHeight
+        // Match the app-list density so the two master columns read as one surface.
+        tableView.rowHeight = Metrics.compactRowHeight
         tableView.dataSource = self
         tableView.delegate = self
 
@@ -185,7 +186,7 @@ private final class PackageRowCell: NSTableCellView {
         icon.contentTintColor = .secondaryLabelColor
         title.font = Typography.body
         title.lineBreakMode = .byTruncatingMiddle
-        subtitle.font = Typography.subheadline
+        subtitle.font = Typography.footnote
         subtitle.textColor = .secondaryLabelColor
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Spacing.sm),
@@ -193,10 +194,10 @@ private final class PackageRowCell: NSTableCellView {
             icon.widthAnchor.constraint(equalToConstant: Metrics.badgeSize),
             icon.heightAnchor.constraint(equalToConstant: Metrics.badgeSize),
             title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: Spacing.sm),
-            title.topAnchor.constraint(equalTo: topAnchor, constant: Spacing.xs + 1),
+            title.bottomAnchor.constraint(equalTo: centerYAnchor, constant: -1),
             title.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Spacing.sm),
             subtitle.leadingAnchor.constraint(equalTo: title.leadingAnchor),
-            subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 1),
+            subtitle.topAnchor.constraint(equalTo: centerYAnchor, constant: 1),
             subtitle.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Spacing.sm),
         ])
     }

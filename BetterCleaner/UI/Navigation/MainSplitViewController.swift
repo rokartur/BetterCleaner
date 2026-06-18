@@ -60,8 +60,10 @@ final class MainSplitViewController: NSSplitViewController {
         // (System Settings look). Always visible: it's the only navigation, so it
         // can't be collapsed.
         navItem = NSSplitViewItem(sidebarWithViewController: navVC)
-        navItem.minimumThickness = 200
-        navItem.maximumThickness = 260
+        // 220 floor so a page label + its reclaimable-size badge both fit without
+        // truncating the title (e.g. "System Junk   30.64 GB").
+        navItem.minimumThickness = 220
+        navItem.maximumThickness = 280
         navItem.canCollapse = false
         addSplitViewItem(navItem)
 

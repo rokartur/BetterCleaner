@@ -149,7 +149,7 @@ final class PageHeaderView: NSView {
         case .appHero:
             iconWidth.constant = Self.heroIconSize
             iconHeight.constant = Self.heroIconSize
-            titleLabel.font = Typography.semibold(.title1)
+            titleLabel.font = Typography.semibold(.largeTitle)
         }
     }
 }

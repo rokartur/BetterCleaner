@@ -58,12 +58,14 @@ final class FileCell: NSTableCellView {
             iconView.widthAnchor.constraint(equalToConstant: Metrics.listIconSize),
             iconView.heightAnchor.constraint(equalToConstant: Metrics.listIconSize),
 
+            // Center the name+path pair vertically so the two-line block sits
+            // balanced in the row instead of hugging the top edge.
             nameField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: Spacing.sm),
-            nameField.topAnchor.constraint(equalTo: topAnchor, constant: Spacing.xs + 1),
+            nameField.bottomAnchor.constraint(equalTo: centerYAnchor, constant: -1),
             nameField.trailingAnchor.constraint(lessThanOrEqualTo: safetyDot.leadingAnchor, constant: -Spacing.sm),
 
             pathField.leadingAnchor.constraint(equalTo: nameField.leadingAnchor),
-            pathField.topAnchor.constraint(equalTo: nameField.bottomAnchor, constant: 1),
+            pathField.topAnchor.constraint(equalTo: centerYAnchor, constant: 1),
             pathField.trailingAnchor.constraint(lessThanOrEqualTo: safetyDot.leadingAnchor, constant: -Spacing.sm),
 
             safetyDot.trailingAnchor.constraint(equalTo: lockView.leadingAnchor, constant: -Spacing.sm),

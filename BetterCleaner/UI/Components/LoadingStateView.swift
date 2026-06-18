@@ -30,7 +30,7 @@ final class LoadingStateView: NSView {
         spinner.controlSize = .regular
         spinner.isDisplayedWhenStopped = false
 
-        messageLabel.font = .systemFont(ofSize: Typography.body.pointSize, weight: .medium)
+        messageLabel.font = Typography.medium(.body)
         messageLabel.textColor = .secondaryLabelColor
         messageLabel.alignment = .center
         messageLabel.lineBreakMode = .byTruncatingTail
@@ -47,7 +47,7 @@ final class LoadingStateView: NSView {
 
         stack.orientation = .vertical
         stack.alignment = .centerX
-        stack.spacing = Spacing.sm + 2
+        stack.spacing = Spacing.md
         stack.translatesAutoresizingMaskIntoConstraints = false
         for v in [spinner, messageLabel, bar, percentLabel] { stack.addArrangedSubview(v) }
         addSubview(stack)
