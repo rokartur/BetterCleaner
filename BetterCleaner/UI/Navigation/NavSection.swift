@@ -32,6 +32,7 @@ enum NavCatalog {
 
     static let tools: [NavSection] = [
         NavSection(id: "pkg", title: "Packages", icon: "shippingbox.fill", enabled: true, color: .systemIndigo),
+        NavSection(id: "homebrew", title: "Homebrew", icon: "cup.and.saucer.fill", enabled: true, color: .systemBrown),
         NavSection(id: "devenv", title: "Development", icon: "hammer.fill", enabled: true, color: .systemRed),
     ]
 

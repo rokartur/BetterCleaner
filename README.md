@@ -42,6 +42,7 @@ Complete uninstall · Native · Liquid Glass · Always restorable · Free foreve
 - **Reclaim wasted space.** Spot orphaned files from apps you already deleted, clear out junk caches and logs, and clean up developer leftovers.
 - **Nothing is ever lost.** Deleted items go to a safe, restorable spot instead of vanishing. The Delete History shows what you removed, lets you search it, reveal files in Finder, and restore anything with one click.
 - **Right from Finder.** Clean or uninstall straight from the Finder right-click menu.
+- **Manage Homebrew.** Browse installed formulae & casks, upgrade or uninstall them (casks with a full *zap* that removes every leftover), control services and taps, search & install new packages, import/export a Brewfile, reclaim space with cleanup and autoremove, adopt apps you installed by hand, and run an advisory security scan — all without the Terminal.
 - **Clean, native design.** A modern Mac interface with a sidebar app list and drag-and-drop to uninstall.
 - **Your rules.** Grant permissions, exclude folders you want left alone, and set your own cleanup conditions.
 - **Stays up to date.** Built-in automatic updates.

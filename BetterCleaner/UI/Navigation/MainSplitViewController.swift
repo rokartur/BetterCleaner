@@ -31,6 +31,10 @@ final class MainSplitViewController: NSSplitViewController {
     /// Packages page halves — list lives in the shared sidebar, detail in content.
     private lazy var packageListVC = PackageListViewController()
     private lazy var packageDetailVC = PackageDetailViewController()
+    /// Homebrew page halves — list (Installed/Services/Taps) in the shared sidebar,
+    /// detail in content. Coordinates search & maintenance sheets.
+    private lazy var homebrewListVC = HomebrewListViewController()
+    private lazy var homebrewDetailVC = HomebrewDetailViewController()
     private lazy var developmentVC = DevelopmentViewController()
     private lazy var deleteHistoryVC = DeleteHistoryViewController()
 
@@ -44,10 +48,10 @@ final class MainSplitViewController: NSSplitViewController {
     private var reclaimable: [String: Int64] = [:]
 
     /// Every selectable page other than the default Applications page.
-    private static let pageIDs: Set<String> = ["junk", "orphaned", "pkg", "devenv", "history"]
+    private static let pageIDs: Set<String> = ["junk", "orphaned", "pkg", "homebrew", "devenv", "history"]
     /// Pages that show the collapsible left sidebar (a master list in it). Every
     /// other page collapses the sidebar and takes the content area full-width.
-    private static let sidebarPageIDs: Set<String> = ["applications", "pkg"]
+    private static let sidebarPageIDs: Set<String> = ["applications", "pkg", "homebrew"]
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -84,6 +88,7 @@ final class MainSplitViewController: NSSplitViewController {
         wireReclaimable()
         wireApplications()
         wirePackages()
+        wireHomebrew()
 
         // Wire the nav's callbacks only after every column exists, so the first
         // programmatic page set can't re-enter `select(_:)` before the other split
@@ -120,6 +125,26 @@ final class MainSplitViewController: NSSplitViewController {
     private func wirePackages() {
         packageListVC.onSelect = { [weak self] receipt in self?.packageDetailVC.show(receipt) }
         packageDetailVC.onChanged = { [weak self] in self?.packageListVC.rescan() }
+    }
+
+    // MARK: - Homebrew orchestration
+
+    private func wireHomebrew() {
+        homebrewListVC.onSelect = { [weak self] selection in self?.homebrewDetailVC.show(selection) }
+        homebrewDetailVC.onChanged = { [weak self] in self?.homebrewListVC.rescan() }
+        homebrewListVC.onAddRequested = { [weak self] in self?.presentHomebrewSearch() }
+        homebrewListVC.onMaintenanceRequested = { [weak self] anchor in self?.presentHomebrewMaintenance(anchor) }
+    }
+
+    private func presentHomebrewSearch() {
+        let search = HomebrewSearchViewController { [weak self] in self?.homebrewListVC.rescan() }
+        presentAsSheet(search)
+    }
+
+    private func presentHomebrewMaintenance(_ anchor: NSButton) {
+        HomebrewMaintenanceMenu.present(from: anchor, presenter: self) { [weak self] in
+            self?.homebrewListVC.rescan()
+        }
     }
 
     func refreshApps() {
@@ -260,6 +285,10 @@ final class MainSplitViewController: NSSplitViewController {
             sidebarContainer.setContent(packageListVC)
             container.setContent(packageDetailVC)
             packageListVC.startIfNeeded()
+        case "homebrew":
+            sidebarContainer.setContent(homebrewListVC)
+            container.setContent(homebrewDetailVC)
+            homebrewListVC.startIfNeeded()
         case "devenv":
             container.setContent(developmentVC); developmentVC.startIfNeeded()
         case "history":
