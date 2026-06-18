@@ -10,7 +10,7 @@ import AppKit
 /// programmatic page change (launch / drop / deep link) onto the list without
 /// re-firing `onSelect`, so there is no selection feedback loop.
 @MainActor
-final class NavSidebarViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
+final class NavSidebarViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
     /// Fired when the user picks a page row. Not fired by `selectRow(_:)`.
     var onSelect: ((String) -> Void)?
     /// Fired when the footer Settings button is clicked.
@@ -23,11 +23,14 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
 
     private static let headerCellID = NSUserInterfaceItemIdentifier("NavHeaderCell")
 
+    private let searchField = NSSearchField()
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
     private let settingsButton = SidebarHoverButton()
-    /// Top inset of the list, kept in sync with the traffic-light position so the
-    /// first row clears the close button by the BetterSettings offset.
+    /// Live search text; filters the page rows by title.
+    private var searchQuery = ""
+    /// Top inset of the search field, kept in sync with the traffic-light position
+    /// so it clears the close button by the BetterSettings offset.
     private var scrollTopConstraint: NSLayoutConstraint?
     private var rows: [Row] = []
     /// Reclaimable bytes per page id (Junk / Orphaned / Development), shown trailing.
@@ -68,6 +71,15 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
         // `selectRow(_:)`, so there's always a row selected once the page is set.
         tableView.allowsEmptySelection = true
 
+        // Search field at the top of the sidebar (BetterSettings parity): filters
+        // the page rows by name. Sits the BetterSettings gap below the traffic lights.
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchField.controlSize = .large
+        searchField.placeholderString = "Search"
+        searchField.delegate = self
+        searchField.sendsWholeSearchString = false
+        container.addSubview(searchField)
+
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
@@ -96,12 +108,17 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
         separator.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(separator)
 
-        // Offset the first row below the traffic lights by the BetterSettings
+        // Offset the search field below the traffic lights by the BetterSettings
         // amount; refined in `viewDidLayout` from the real close-button position.
-        let scrollTop = scrollView.topAnchor.constraint(equalTo: container.topAnchor, constant: 46)
-        scrollTopConstraint = scrollTop
+        let searchTop = searchField.topAnchor.constraint(equalTo: container.topAnchor, constant: 46)
+        scrollTopConstraint = searchTop
         NSLayoutConstraint.activate([
-            scrollTop,
+            searchTop,
+            searchField.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Metrics.sidebarRowPadding),
+            searchField.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Metrics.sidebarRowPadding),
+            searchField.heightAnchor.constraint(equalToConstant: 28),
+
+            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: Spacing.md),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: separator.topAnchor),
@@ -146,15 +163,23 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
     }
 
     private func buildRows() {
+        let q = searchQuery.lowercased()
         var rows: [Row] = []
         for group in NavCatalog.groups {
-            let items = group.items.filter { $0.enabled }
+            let items = group.items.filter { $0.enabled && (q.isEmpty || $0.title.lowercased().contains(q)) }
             guard !items.isEmpty else { continue }
             rows.append(.header(group.title))
             rows += items.map { .section($0) }
         }
         self.rows = rows
         tableView.reloadData()
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        guard (obj.object as? NSSearchField) === searchField else { return }
+        searchQuery = searchField.stringValue.trimmingCharacters(in: .whitespaces)
+        buildRows()
+        applySelection()
     }
 
     // MARK: - Public API
