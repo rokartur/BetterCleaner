@@ -75,8 +75,8 @@ final class MainSplitViewController: NSSplitViewController {
         // column, shown only on the Applications + Packages pages and collapsed
         // everywhere else.
         contentListItem = NSSplitViewItem(contentListWithViewController: sidebarContainer)
-        contentListItem.minimumThickness = 240
-        contentListItem.maximumThickness = 420
+        contentListItem.minimumThickness = 320
+        contentListItem.maximumThickness = 560
         contentListItem.canCollapse = true
         addSplitViewItem(contentListItem)
 
