@@ -1,15 +1,9 @@
 import AppKit
 
-/// Detail pane for the Homebrew page. Renders whichever item the master list
-/// selected — a package, a service, or a tap — TapHouse-style: a header (icon tile +
-/// name + "Formula · vX"), sectioned info (Description, Information key/value grid,
-/// Dependencies, Required by), and a bottom action bar.
-///
-/// - **Package**: Homepage, Upgrade (when outdated), Uninstall (casks offer a *zap*
-///   checkbox). Formulae also show their dependency tree and warn when something
-///   still depends on them.
-/// - **Service**: Start / Stop / Restart.
-/// - **Tap**: Homepage (remote), Remove Tap.
+/// Detail pane for the Homebrew page, styled 1:1 after TapHouse: a hero icon tile +
+/// big name + "version · Type", an Overview / Dependencies tab strip, then sectioned
+/// content (Description, an Information key/value grid, inline Actions). Services and
+/// taps reuse the same hero + Information + Actions layout without tabs.
 ///
 /// Package mutations run in a streaming `HomebrewProgressViewController` sheet; quick
 /// service/tap commands run inline. `onChanged` fires after any mutation.
@@ -24,35 +18,66 @@ final class HomebrewDetailViewController: NSViewController {
         case tap(TapInfo)
     }
     private var selection: Selection = .empty
-    /// Formulae that depend on the shown formula (drives the uninstall warning).
     private var dependents: [String] = []
     private var depTree = ""
+    private var sizeText = ""
+    private var zapEnabled = false
 
-    private let header = PageHeaderView(titleTruncation: .byTruncatingMiddle)
+    private enum Tab: Int { case overview, dependencies }
+    private var tab: Tab = .overview
+
+    // Header (fixed, above the scroll).
+    private let heroTile = IconTileView(size: 60, corner: 14)
+    private let titleField = NSTextField(labelWithString: "")
+    private let subtitleIcon = NSImageView()
+    private let subtitleField = NSTextField(labelWithString: "")
+    private let headerDivider = NSBox()
+    private let tabs = NSSegmentedControl(labels: ["Overview", "Dependencies"],
+                                          trackingMode: .selectOne, target: nil, action: nil)
+
     private let contentScroll = NSScrollView()
     private let contentStack = NSStackView()
     private let loadingView = LoadingStateView()
     private let emptyState = EmptyStateView(symbol: "cup.and.saucer")
-    private let statusLabel = NSTextField(labelWithString: "")
 
-    private lazy var zapCheckbox: NSButton = {
-        let b = NSButton(checkboxWithTitle: "Remove all related files (zap)", target: nil, action: nil)
-        b.toolTip = "Also delete every file this cask ever created — a complete uninstall."
-        return b
-    }()
-    private lazy var homepageButton = Buttons.secondary("Homepage", target: self, action: #selector(openHomepage))
-    private lazy var upgradeButton = Buttons.secondary("Upgrade", target: self, action: #selector(upgrade))
-    private lazy var startButton = Buttons.secondary("Start", target: self, action: #selector(startService))
-    private lazy var stopButton = Buttons.secondary("Stop", target: self, action: #selector(stopService))
-    private lazy var restartButton = Buttons.secondary("Restart", target: self, action: #selector(restartService))
-    private lazy var uninstallButton = Buttons.destructive("Uninstall", target: self, action: #selector(uninstall))
-    private lazy var untapButton = Buttons.destructive("Remove Tap", target: self, action: #selector(untap))
+    private var headerStack: NSStackView!
 
     // MARK: - Layout
 
     override func loadView() {
-        header.setBadge(symbol: "cup.and.saucer.fill")
-        header.translatesAutoresizingMaskIntoConstraints = false
+        titleField.font = .systemFont(ofSize: 26, weight: .bold)
+        titleField.lineBreakMode = .byTruncatingTail
+
+        subtitleIcon.image = NSImage(systemSymbolName: "tag", accessibilityDescription: nil)
+        subtitleIcon.contentTintColor = .tertiaryLabelColor
+        subtitleIcon.symbolConfiguration = .init(pointSize: 11, weight: .regular)
+        subtitleIcon.setContentHuggingPriority(.required, for: .horizontal)
+        subtitleField.font = Typography.subheadline
+        subtitleField.textColor = .secondaryLabelColor
+
+        let subtitleRow = NSStackView(views: [subtitleIcon, subtitleField])
+        subtitleRow.orientation = .horizontal
+        subtitleRow.alignment = .centerY
+        subtitleRow.spacing = 5
+
+        let titleColumn = NSStackView(views: [titleField, subtitleRow])
+        titleColumn.orientation = .vertical
+        titleColumn.alignment = .leading
+        titleColumn.spacing = 4
+
+        headerStack = NSStackView(views: [heroTile, titleColumn])
+        headerStack.orientation = .horizontal
+        headerStack.alignment = .centerY
+        headerStack.spacing = Spacing.md
+        headerStack.translatesAutoresizingMaskIntoConstraints = false
+
+        headerDivider.boxType = .separator
+        headerDivider.translatesAutoresizingMaskIntoConstraints = false
+
+        tabs.translatesAutoresizingMaskIntoConstraints = false
+        tabs.target = self
+        tabs.action = #selector(tabChanged)
+        tabs.selectedSegment = 0
 
         contentStack.orientation = .vertical
         contentStack.alignment = .leading
@@ -68,7 +93,6 @@ final class HomebrewDetailViewController: NSViewController {
             contentStack.trailingAnchor.constraint(equalTo: doc.trailingAnchor),
             contentStack.bottomAnchor.constraint(equalTo: doc.bottomAnchor, constant: -Spacing.md),
         ])
-
         contentScroll.translatesAutoresizingMaskIntoConstraints = false
         contentScroll.hasVerticalScroller = true
         contentScroll.drawsBackground = false
@@ -80,39 +104,33 @@ final class HomebrewDetailViewController: NSViewController {
             doc.widthAnchor.constraint(equalTo: contentScroll.contentView.widthAnchor),
         ])
 
-        statusLabel.font = Typography.subheadline
-        statusLabel.textColor = .secondaryLabelColor
-
-        let footer = ActionBarView(
-            leading: [statusLabel, zapCheckbox],
-            trailing: [homepageButton, startButton, stopButton, restartButton, upgradeButton, untapButton, uninstallButton]
-        )
-        footer.translatesAutoresizingMaskIntoConstraints = false
-
         let root = NSView()
-        for v in [header, contentScroll, footer, emptyState, loadingView] { root.addSubview(v) }
+        for v in [headerStack!, headerDivider, tabs, contentScroll, emptyState, loadingView] { root.addSubview(v) }
         NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: root.topAnchor, constant: Spacing.md),
-            header.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
-            header.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
+            headerStack.topAnchor.constraint(equalTo: root.topAnchor, constant: Spacing.lg),
+            headerStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
+            headerStack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -Spacing.lg),
 
-            contentScroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Spacing.md),
+            headerDivider.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: Spacing.md),
+            headerDivider.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
+            headerDivider.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
+
+            tabs.topAnchor.constraint(equalTo: headerDivider.bottomAnchor, constant: Spacing.md),
+            tabs.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+
+            contentScroll.topAnchor.constraint(equalTo: tabs.bottomAnchor, constant: Spacing.md),
             contentScroll.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
             contentScroll.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
+            contentScroll.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -Spacing.lg),
 
-            footer.topAnchor.constraint(equalTo: contentScroll.bottomAnchor, constant: Spacing.sm),
-            footer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
-            footer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
-            footer.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -Spacing.md),
+            emptyState.topAnchor.constraint(equalTo: root.topAnchor),
+            emptyState.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            emptyState.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            emptyState.bottomAnchor.constraint(equalTo: root.bottomAnchor),
 
-            emptyState.leadingAnchor.constraint(equalTo: contentScroll.leadingAnchor),
-            emptyState.trailingAnchor.constraint(equalTo: contentScroll.trailingAnchor),
-            emptyState.topAnchor.constraint(equalTo: contentScroll.topAnchor),
-            emptyState.bottomAnchor.constraint(equalTo: contentScroll.bottomAnchor),
-
+            loadingView.topAnchor.constraint(equalTo: contentScroll.topAnchor),
             loadingView.leadingAnchor.constraint(equalTo: contentScroll.leadingAnchor),
             loadingView.trailingAnchor.constraint(equalTo: contentScroll.trailingAnchor),
-            loadingView.topAnchor.constraint(equalTo: contentScroll.topAnchor),
             loadingView.bottomAnchor.constraint(equalTo: contentScroll.bottomAnchor),
         ])
         view = root
@@ -122,8 +140,8 @@ final class HomebrewDetailViewController: NSViewController {
     // MARK: - Public entry
 
     func show(_ selection: HomebrewSelection?) {
-        dependents = []
-        depTree = ""
+        dependents = []; depTree = ""; sizeText = ""; zapEnabled = false; tab = .overview
+        tabs.selectedSegment = 0
         guard let selection else { self.selection = .empty; showPlaceholder(); return }
         switch selection {
         case .package(let p): self.selection = .package(p); showPackage(p)
@@ -134,100 +152,118 @@ final class HomebrewDetailViewController: NSViewController {
 
     private func showPlaceholder() {
         loadingView.stop()
-        setButtons(visible: [])
-        zapCheckbox.isHidden = true
-        statusLabel.stringValue = ""
-        header.clearBadge()
-        header.title = "Homebrew"
-        header.summary = ""
-        header.detail = ""
-        clearSections()
+        setChromeHidden(true)
         emptyState.configure(symbol: "cup.and.saucer",
                              title: "Select an item",
                              message: "Choose a package, service, or tap to manage it.")
         emptyState.isHidden = false
     }
 
+    private func setChromeHidden(_ hidden: Bool) {
+        headerStack.isHidden = hidden
+        headerDivider.isHidden = hidden
+        contentScroll.isHidden = hidden
+        if hidden { tabs.isHidden = true }
+    }
+
     // MARK: - Package
 
     private func showPackage(_ p: HomebrewPackage) {
         emptyState.isHidden = true
-        if let icon = appIcon(for: p) { header.setBadge(appIcon: icon) }
-        else { header.setBadge(symbol: p.isCask ? "macwindow" : "shippingbox") }
-        header.title = p.displayName
-        header.summary = packageSummary(p)
-        header.detail = p.token == p.displayName ? "" : p.token
+        setChromeHidden(false)
+        tabs.isHidden = false
 
-        zapCheckbox.state = .off
-        var buttons: [NSButton] = []
-        if !p.homepage.isEmpty { buttons.append(homepageButton) }
-        if p.isOutdated { buttons.append(upgradeButton) }
-        buttons.append(uninstallButton)
-        setButtons(visible: buttons)
-        zapCheckbox.isHidden = !p.isCask
-        statusLabel.stringValue = ""
+        if let icon = appIcon(for: p) { heroTile.setAppIcon(icon) }
+        else { heroTile.setGlyph(p.isCask ? "macwindow" : "terminal", color: .systemBlue) }
+        titleField.stringValue = p.displayName
+        subtitleField.stringValue = "\(p.installedVersion) · \(p.isCask ? "Cask" : "Formula")"
 
-        renderPackage(p)
+        renderTabContent()
 
-        // Formulae: load the dependency tree + reverse dependents off the main thread.
-        guard !p.isCask else { return }
-        let token = p.token
+        // Load size + dependency info off the main thread, then re-render.
+        let token = p.token, isCask = p.isCask
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let tree = HomebrewService.dependencyTree(token: token)
-            let usedBy = HomebrewService.usedBy(token: token)
+            let size = HomebrewService.installedSize(p)
+            let tree = isCask ? "" : HomebrewService.dependencyTree(token: token)
+            let usedBy = isCask ? [] : HomebrewService.usedBy(token: token)
             DispatchQueue.main.async {
                 guard let self, case .package(let current) = self.selection, current.token == token else { return }
-                self.dependents = usedBy
+                self.sizeText = size ?? ""
                 self.depTree = tree
-                self.renderPackage(current)
+                self.dependents = usedBy
+                self.renderTabContent()
             }
         }
     }
 
-    /// (Re)build the package sections from current state — called once up front and
-    /// again when the async dependency data arrives.
-    private func renderPackage(_ p: HomebrewPackage) {
+    @objc private func tabChanged() {
+        tab = Tab(rawValue: tabs.selectedSegment) ?? .overview
+        renderTabContent()
+    }
+
+    private func renderTabContent() {
+        guard case .package(let p) = selection else { return }
         clearSections()
-
-        if !p.description.isEmpty {
-            addSection("Description", wrapLabel(p.description))
-        }
-
-        var kv: [KeyValueView] = [
-            KeyValueView(key: "Version", value: p.installedVersion.isEmpty ? "—" : p.installedVersion),
-            KeyValueView(key: "Type", value: p.isCask ? "Cask" : "Formula"),
-        ]
-        if !p.latestVersion.isEmpty, p.latestVersion != p.installedVersion {
-            kv.append(KeyValueView(key: p.isOutdated ? "Latest (update)" : "Latest", value: p.latestVersion))
-        }
-        if !p.tap.isEmpty { kv.append(KeyValueView(key: "Tap", value: p.tap)) }
-        if !p.homepage.isEmpty {
-            kv.append(KeyValueView(key: "Homepage", value: p.homepage, link: true) { [weak self] in self?.openHomepage() })
-        }
-        if !p.isCask {
-            kv.append(KeyValueView(key: "Installed", value: p.installedOnRequest ? "On request" : "As a dependency"))
-        }
-        addSection("Information", kvGrid(kv))
-
-        if !p.dependencies.isEmpty {
-            addSection("Dependencies", wrapLabel(p.dependencies.joined(separator: ", ")))
-        }
-        if !dependents.isEmpty {
-            let label = wrapLabel("⚠️ " + dependents.joined(separator: ", "))
-            label.textColor = .systemOrange
-            addSection("Required by", label)
-        }
-        if !depTree.isEmpty {
-            addSection("Dependency tree", monoLabel(depTree))
+        switch tab {
+        case .overview:
+            if !p.description.isEmpty { addSection("Description", wrapLabel(p.description)) }
+            addSection("Information", kvGrid(packageInfoPairs(p)))
+            addSection("Actions", packageActions(p))
+        case .dependencies:
+            if !p.dependencies.isEmpty {
+                addSection("Dependencies", wrapLabel(p.dependencies.joined(separator: ", ")))
+            }
+            if !dependents.isEmpty {
+                let label = wrapLabel(dependents.joined(separator: ", "))
+                addSection("Required by", label)
+            }
+            if !depTree.isEmpty { addSection("Dependency tree", monoLabel(depTree)) }
+            if p.dependencies.isEmpty && dependents.isEmpty && depTree.isEmpty {
+                addSection("Dependencies", wrapLabel("No dependencies."))
+            }
         }
     }
 
-    private func packageSummary(_ p: HomebrewPackage) -> String {
-        var parts: [String] = [p.isCask ? "Cask" : "Formula"]
-        if !p.installedVersion.isEmpty { parts.append("v\(p.installedVersion)") }
-        if p.isPinned { parts.append("pinned") }
-        if p.isOutdated { parts.append("update available") }
-        return parts.joined(separator: "  ·  ")
+    private func packageInfoPairs(_ p: HomebrewPackage) -> [KeyValueView] {
+        var kv: [KeyValueView] = [
+            KeyValueView(key: "Version", value: p.installedVersion.isEmpty ? "—" : p.installedVersion),
+        ]
+        if !p.homepage.isEmpty {
+            kv.append(KeyValueView(key: "Homepage", value: shortHost(p.homepage), link: true) { [weak self] in self?.openHomepage() })
+        }
+        kv.append(KeyValueView(key: "Type", value: p.isCask ? "Cask" : "Formula (CLI)"))
+        if !sizeText.isEmpty { kv.append(KeyValueView(key: "Size", value: sizeText)) }
+        if !p.isCask {
+            kv.append(KeyValueView(key: "Installed as", value: p.installedOnRequest ? "Direct install" : "Dependency"))
+        }
+        if !p.tap.isEmpty { kv.append(KeyValueView(key: "Tap", value: p.tap)) }
+        return kv
+    }
+
+    private func packageActions(_ p: HomebrewPackage) -> NSView {
+        var buttons: [NSView] = []
+        if p.isOutdated {
+            buttons.append(actionButton("Upgrade", "arrow.up.circle", #selector(upgrade)))
+        }
+        if !p.isCask {
+            buttons.append(actionButton(p.isPinned ? "Unpin" : "Pin", p.isPinned ? "pin.slash" : "pin", #selector(pin)))
+        }
+        buttons.append(actionButton("Uninstall", "trash", #selector(uninstall)))
+
+        let row = NSStackView(views: buttons)
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = Spacing.sm
+
+        guard p.isCask else { return row }
+        // Casks get a zap toggle above the buttons.
+        let zap = NSButton(checkboxWithTitle: "Also remove all related files (zap)", target: self, action: #selector(zapToggled(_:)))
+        zap.state = zapEnabled ? .on : .off
+        let col = NSStackView(views: [zap, row])
+        col.orientation = .vertical
+        col.alignment = .leading
+        col.spacing = Spacing.sm
+        return col
     }
 
     private func appIcon(for p: HomebrewPackage) -> NSImage? {
@@ -240,123 +276,77 @@ final class HomebrewDetailViewController: NSViewController {
 
     private func showService(_ s: ServiceInfo) {
         emptyState.isHidden = true
-        zapCheckbox.isHidden = true
-        header.setBadge(symbol: "gearshape.2")
-        header.title = s.name
-        header.summary = "Service  ·  \(s.status.capitalized)"
-        header.detail = ""
-        statusLabel.stringValue = ""
-        setButtons(visible: s.isRunning ? [stopButton, restartButton] : [startButton])
+        setChromeHidden(false)
+        tabs.isHidden = true
+        heroTile.setGlyph("gearshape.2", color: s.isRunning ? .systemGreen : .systemGray)
+        titleField.stringValue = s.name
+        subtitleField.stringValue = "Service · \(s.status.capitalized)"
 
         clearSections()
         var kv: [KeyValueView] = [KeyValueView(key: "Status", value: s.status.capitalized)]
         if let user = s.user, !user.isEmpty { kv.append(KeyValueView(key: "User", value: user)) }
         if let file = s.file, !file.isEmpty { kv.append(KeyValueView(key: "File", value: file)) }
         addSection("Information", kvGrid(kv))
+
+        let buttons: [NSView] = s.isRunning
+            ? [actionButton("Stop", "stop.circle", #selector(stopService)),
+               actionButton("Restart", "arrow.clockwise.circle", #selector(restartService))]
+            : [actionButton("Start", "play.circle", #selector(startService))]
+        let row = NSStackView(views: buttons)
+        row.orientation = .horizontal; row.spacing = Spacing.sm
+        addSection("Actions", row)
     }
 
     // MARK: - Tap
 
     private func showTap(_ t: TapInfo) {
         emptyState.isHidden = true
-        zapCheckbox.isHidden = true
-        header.setBadge(symbol: "arrow.triangle.branch")
-        header.title = t.name
-        header.summary = "Tap  ·  \(t.packageCount) package\(t.packageCount == 1 ? "" : "s")"
-        header.detail = ""
-        statusLabel.stringValue = ""
-        var buttons: [NSButton] = []
-        if (t.remote ?? "").hasPrefix("http") { buttons.append(homepageButton) }
-        if !(t.official ?? false) { buttons.append(untapButton) }   // core taps can't be removed
-        setButtons(visible: buttons)
+        setChromeHidden(false)
+        tabs.isHidden = true
+        heroTile.setGlyph("arrow.triangle.branch", color: .systemBlue)
+        titleField.stringValue = t.name
+        subtitleField.stringValue = "Tap · \(t.packageCount) package\(t.packageCount == 1 ? "" : "s")"
 
         clearSections()
         var kv: [KeyValueView] = [KeyValueView(key: "Official", value: (t.official ?? false) ? "Yes" : "No")]
         if let remote = t.remote, !remote.isEmpty {
-            kv.append(KeyValueView(key: "Remote", value: remote, link: remote.hasPrefix("http")) { [weak self] in self?.openHomepage() })
+            kv.append(KeyValueView(key: "Remote", value: shortHost(remote), link: remote.hasPrefix("http")) { [weak self] in self?.openHomepage() })
         }
         kv.append(KeyValueView(key: "Formulae", value: "\(t.formulaNames?.count ?? 0)"))
         kv.append(KeyValueView(key: "Casks", value: "\(t.caskTokens?.count ?? 0)"))
         addSection("Information", kvGrid(kv))
 
-        let formulae = t.formulaNames ?? []
-        let casks = t.caskTokens ?? []
-        if !formulae.isEmpty { addSection("Formulae", wrapLabel(formulae.joined(separator: ", "))) }
-        if !casks.isEmpty { addSection("Casks", wrapLabel(casks.joined(separator: ", "))) }
-    }
-
-    // MARK: - Section building
-
-    private func clearSections() {
-        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-    }
-
-    private func addSection(_ title: String, _ body: NSView) {
-        let head = NSTextField(labelWithString: title)
-        head.font = Typography.semibold(.subheadline)
-        head.textColor = .secondaryLabelColor
-
-        let container = NSStackView(views: [head, body])
-        container.orientation = .vertical
-        container.alignment = .leading
-        container.spacing = Spacing.xs
-        container.translatesAutoresizingMaskIntoConstraints = false
-        contentStack.addArrangedSubview(container)
-        container.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
-        body.widthAnchor.constraint(equalTo: container.widthAnchor).isActive = true
-    }
-
-    private func wrapLabel(_ text: String) -> NSTextField {
-        let l = NSTextField(wrappingLabelWithString: text)
-        l.font = Typography.subheadline
-        l.textColor = .labelColor
-        l.isSelectable = true
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }
-
-    private func monoLabel(_ text: String) -> NSTextField {
-        let l = NSTextField(wrappingLabelWithString: text)
-        l.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        l.textColor = .secondaryLabelColor
-        l.isSelectable = true
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }
-
-    /// Lay key/value cells two-per-row, columns of equal width.
-    private func kvGrid(_ items: [KeyValueView]) -> NSView {
-        let col = NSStackView()
-        col.orientation = .vertical
-        col.alignment = .leading
-        col.spacing = Spacing.md
-        col.translatesAutoresizingMaskIntoConstraints = false
-        var i = 0
-        while i < items.count {
-            let rowItems = Array(items[i ..< min(i + 2, items.count)])
-            let row = NSStackView(views: rowItems)
+        if !(t.official ?? false) {
+            let row = NSStackView(views: [actionButton("Remove Tap", "trash", #selector(untap))])
             row.orientation = .horizontal
-            row.alignment = .top
-            row.distribution = .fillEqually
-            row.spacing = Spacing.md
-            row.translatesAutoresizingMaskIntoConstraints = false
-            col.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: col.widthAnchor).isActive = true
-            i += 2
+            addSection("Actions", row)
         }
-        return col
     }
 
-    // MARK: - Package actions
+    // MARK: - Actions
+
+    @objc private func zapToggled(_ sender: NSButton) { zapEnabled = sender.state == .on }
 
     @objc private func upgrade() {
         guard case .package(let p) = selection else { return }
         runMutation(title: "Upgrading \(p.displayName)…", arguments: HomebrewActions.upgradeArgs(p))
     }
 
+    @objc private func pin() {
+        guard case .package(let p) = selection, !p.isCask else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let out = HomebrewActions.runQuiet(HomebrewActions.pinArgs(p))
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if !out.ok { self.alert("Couldn't \(p.isPinned ? "unpin" : "pin")", out.stderr.isEmpty ? out.stdout : out.stderr) }
+                self.onChanged?()
+            }
+        }
+    }
+
     @objc private func uninstall() {
         guard case .package(let p) = selection else { return }
-        let zap = p.isCask && zapCheckbox.state == .on
+        let zap = p.isCask && zapEnabled
 
         if Preferences.shared.confirmBeforeDelete {
             let alert = NSAlert()
@@ -381,36 +371,22 @@ final class HomebrewDetailViewController: NSViewController {
         }
     }
 
-    // MARK: - Service actions
-
     @objc private func startService()   { serviceControl(.start) }
     @objc private func stopService()    { serviceControl(.stop) }
     @objc private func restartService() { serviceControl(.restart) }
 
     private func serviceControl(_ action: HomebrewActions.ServiceAction) {
         guard case .service(let s) = selection else { return }
-        setButtons(enabled: false)
-        let verb: String
-        switch action {
-        case .start:   verb = "Starting"
-        case .stop:    verb = "Stopping"
-        case .restart: verb = "Restarting"
-        }
-        statusLabel.stringValue = "\(verb) \(s.name)…"
         let args = HomebrewActions.serviceArgs(action, name: s.name)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let out = HomebrewActions.runQuiet(args)
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.setButtons(enabled: true)
-                self.statusLabel.stringValue = ""
                 if !out.ok { self.alert("Couldn't \(action.rawValue) service", out.stderr.isEmpty ? out.stdout : out.stderr) }
                 self.onChanged?()
             }
         }
     }
-
-    // MARK: - Tap actions
 
     @objc private func untap() {
         guard case .tap(let t) = selection else { return }
@@ -420,21 +396,16 @@ final class HomebrewDetailViewController: NSViewController {
         alert.addButton(withTitle: "Remove Tap")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        setButtons(enabled: false)
         let args = HomebrewActions.untapArgs(t.name)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let out = HomebrewActions.runQuiet(args)
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.setButtons(enabled: true)
                 if !out.ok { self.alert("Couldn't remove tap", out.stderr.isEmpty ? out.stdout : out.stderr) }
                 self.onChanged?()
             }
         }
     }
-
-    // MARK: - Shared
 
     @objc private func openHomepage() {
         let urlString: String?
@@ -447,8 +418,6 @@ final class HomebrewDetailViewController: NSViewController {
         NSWorkspace.shared.open(url)
     }
 
-    /// Present the streaming progress sheet for a long mutation; on success run
-    /// `onSuccess` (e.g. history bookkeeping) then refresh the list.
     private func runMutation(title: String, arguments: [String], onSuccess: (() -> Void)? = nil) {
         let sheet = HomebrewProgressViewController(title: title, arguments: arguments) { [weak self] success in
             if success { onSuccess?() }
@@ -457,20 +426,80 @@ final class HomebrewDetailViewController: NSViewController {
         presentAsSheet(sheet)
     }
 
-    // MARK: - Footer button management
+    // MARK: - Section building
 
-    private func setButtons(visible: [NSButton]) {
-        let all = [homepageButton, startButton, stopButton, restartButton, upgradeButton, untapButton, uninstallButton]
-        for b in all {
-            b.isHidden = !visible.contains(where: { $0 === b })
-            b.isEnabled = true
-        }
+    private func clearSections() {
+        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
     }
 
-    private func setButtons(enabled: Bool) {
-        for b in [homepageButton, startButton, stopButton, restartButton, upgradeButton, untapButton, uninstallButton] where !b.isHidden {
-            b.isEnabled = enabled
+    private func addSection(_ title: String, _ body: NSView) {
+        let head = NSTextField(labelWithString: title)
+        head.font = Typography.semibold(.headline)
+        head.textColor = .labelColor
+
+        let container = NSStackView(views: [head, body])
+        container.orientation = .vertical
+        container.alignment = .leading
+        container.spacing = Spacing.sm
+        container.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.addArrangedSubview(container)
+        container.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+        body.widthAnchor.constraint(equalTo: container.widthAnchor).isActive = true
+    }
+
+    private func wrapLabel(_ text: String) -> NSTextField {
+        let l = NSTextField(wrappingLabelWithString: text)
+        l.font = Typography.subheadline
+        l.textColor = .secondaryLabelColor
+        l.isSelectable = true
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }
+
+    private func monoLabel(_ text: String) -> NSTextField {
+        let l = NSTextField(wrappingLabelWithString: text)
+        l.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        l.textColor = .secondaryLabelColor
+        l.isSelectable = true
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }
+
+    private func actionButton(_ title: String, _ symbol: String, _ action: Selector) -> NSButton {
+        let b = NSButton(title: " \(title)", target: self, action: action)
+        b.bezelStyle = .rounded
+        b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        b.imagePosition = .imageLeading
+        b.setContentHuggingPriority(.required, for: .horizontal)
+        return b
+    }
+
+    private func kvGrid(_ items: [KeyValueView]) -> NSView {
+        let col = NSStackView()
+        col.orientation = .vertical
+        col.alignment = .leading
+        col.spacing = Spacing.lg
+        col.translatesAutoresizingMaskIntoConstraints = false
+        var i = 0
+        while i < items.count {
+            let rowItems = Array(items[i ..< min(i + 2, items.count)])
+            let row = NSStackView(views: rowItems)
+            row.orientation = .horizontal
+            row.alignment = .top
+            row.distribution = .fillEqually
+            row.spacing = Spacing.md
+            row.translatesAutoresizingMaskIntoConstraints = false
+            col.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: col.widthAnchor).isActive = true
+            i += 2
         }
+        return col
+    }
+
+    private func shortHost(_ urlString: String) -> String {
+        guard var host = URL(string: urlString)?.host else { return urlString }
+        if host.hasPrefix("www.") { host = String(host.dropFirst(4)) }
+        return host
     }
 
     private func alert(_ title: String, _ message: String) {

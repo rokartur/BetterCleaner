@@ -340,6 +340,10 @@ final class HomebrewListViewController: NSViewController, NSTableViewDataSource,
         return cell
     }
 
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        isHeader(row) ? nil : HomebrewRowView()
+    }
+
     func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool { isHeader(row) }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { isHeader(row) ? 30 : 60 }

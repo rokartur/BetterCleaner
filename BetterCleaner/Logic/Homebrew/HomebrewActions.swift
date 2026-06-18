@@ -54,6 +54,11 @@ enum HomebrewActions {
         ["install", "--cask", "--adopt"] + tokens
     }
 
+    /// `brew pin <name>` / `brew unpin <name>` (formulae only).
+    static func pinArgs(_ pkg: HomebrewPackage) -> [String] {
+        [pkg.isPinned ? "unpin" : "pin", pkg.token]
+    }
+
     // MARK: - Services
 
     static func serviceArgs(_ action: ServiceAction, name: String) -> [String] {

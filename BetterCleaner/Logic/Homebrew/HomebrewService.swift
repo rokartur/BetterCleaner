@@ -117,6 +117,16 @@ enum HomebrewService {
         return Array(Set(names)).sorted()
     }
 
+    /// On-disk size of an installed package's Cellar/Caskroom directory, formatted
+    /// (e.g. "14.5 MB"), or nil when it can't be determined.
+    static func installedSize(_ pkg: HomebrewPackage) -> String? {
+        guard let prefix = HomebrewEnvironment.prefix else { return nil }
+        let dir = pkg.isCask ? "\(prefix)/Caskroom/\(pkg.token)" : "\(prefix)/Cellar/\(pkg.token)"
+        guard FileManager.default.fileExists(atPath: dir) else { return nil }
+        let bytes = FileSize.size(of: URL(fileURLWithPath: dir))
+        return bytes > 0 ? FileSize.string(bytes) : nil
+    }
+
     // MARK: - Helpers
 
     private static func decode<T: Decodable>(_ type: T.Type, _ string: String) -> T? {

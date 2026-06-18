@@ -109,6 +109,17 @@ final class HomebrewRowCell: NSTableCellView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
+    /// White text on the blue selection capsule; normal colors otherwise.
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet {
+            let emphasized = backgroundStyle == .emphasized
+            titleField.textColor = emphasized ? .white : .labelColor
+            subtitleField.textColor = emphasized ? NSColor.white.withAlphaComponent(0.85) : .secondaryLabelColor
+            versionField.textColor = emphasized ? NSColor.white.withAlphaComponent(0.85) : .secondaryLabelColor
+            separator.isHidden = emphasized
+        }
+    }
+
     func configure(_ m: HomebrewRowModel) {
         switch m.leading {
         case .glyph(let symbol, let color): tile.setGlyph(symbol, color: color)
@@ -141,6 +152,24 @@ final class HomebrewRowCell: NSTableCellView {
         var pills: [PillSpec] = []
         if let badgeText, !badgeText.isEmpty { pills.append(PillSpec(text: badgeText, color: badgeColor)) }
         configure(HomebrewRowModel(leading: leading, title: title, pills: pills, subtitle: subtitle))
+    }
+}
+
+/// Table row view that paints the selection as a rounded accent capsule (TapHouse
+/// style) instead of the system bar, and stays vivid even when the table isn't the
+/// first responder.
+final class HomebrewRowView: NSTableRowView {
+    override var isEmphasized: Bool {
+        get { true }
+        set {}
+    }
+
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard isSelected else { return }
+        let rect = bounds.insetBy(dx: 6, dy: 1)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
+        NSColor.controlAccentColor.setFill()
+        path.fill()
     }
 }
 
