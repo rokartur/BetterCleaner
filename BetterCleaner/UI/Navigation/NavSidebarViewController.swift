@@ -26,6 +26,9 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
     private let settingsButton = SidebarHoverButton()
+    /// Top inset of the list, kept in sync with the traffic-light position so the
+    /// first row clears the close button by the BetterSettings offset.
+    private var scrollTopConstraint: NSLayoutConstraint?
     private var rows: [Row] = []
     /// Reclaimable bytes per page id (Junk / Orphaned / Development), shown trailing.
     private var sizes: [String: Int64] = [:]
@@ -93,8 +96,12 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
         separator.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(separator)
 
+        // Offset the first row below the traffic lights by the BetterSettings
+        // amount; refined in `viewDidLayout` from the real close-button position.
+        let scrollTop = scrollView.topAnchor.constraint(equalTo: container.topAnchor, constant: 46)
+        scrollTopConstraint = scrollTop
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
+            scrollTop,
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: separator.topAnchor),
@@ -116,6 +123,27 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
     }
 
     @objc private func settingsClicked() { onSettings?() }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        updateTopInsetForTrafficLights()
+    }
+
+    /// Keep the list's top inset a fixed gap below the traffic lights, exactly like
+    /// BetterSettings positions its search field (so the top of the sidebar reads
+    /// identically regardless of titlebar height).
+    private func updateTopInsetForTrafficLights() {
+        guard let scrollTopConstraint else { return }
+        var topInset: CGFloat = 46
+        if let window = view.window, let closeButton = window.standardWindowButton(.closeButton) {
+            let frameInView = view.convert(closeButton.bounds, from: closeButton)
+            let topToButtonBottom = max(0, view.bounds.maxY - frameInView.minY)
+            topInset = min(max(topToButtonBottom + Metrics.sidebarTrafficLightOffset, 10), 140)
+        }
+        if abs(scrollTopConstraint.constant - topInset) > 0.5 {
+            scrollTopConstraint.constant = topInset
+        }
+    }
 
     private func buildRows() {
         var rows: [Row] = []
@@ -212,7 +240,7 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
                 c.identifier = NavCell.identifier
                 return c
             }()
-            cell.configure(symbol: s.icon, title: s.title, size: sizes[s.id])
+            cell.configure(symbol: s.icon, title: s.title, size: sizes[s.id], color: s.color)
             return cell
         }
     }

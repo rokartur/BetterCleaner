@@ -23,6 +23,9 @@ enum Metrics {
     static let sidebarSelectionRadius: CGFloat = 8
     /// Sidebar group-header left inset.
     static let sidebarHeaderInset: CGFloat = 16
+    /// Gap from the traffic-light close button's bottom to the first sidebar content
+    /// (BetterSettings `searchOffsetBelowTrafficLights`).
+    static let sidebarTrafficLightOffset: CGFloat = 26
 
     /// Corner radius for large glass surfaces (cards, floating action bars).
     static let glassCornerRadius: CGFloat = 16
