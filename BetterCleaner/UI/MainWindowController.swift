@@ -11,19 +11,29 @@ final class MainWindowController: NSWindowController {
             contentRect: NSRect(x: 0, y: 0, width: 1040, height: 660),
             // .fullSizeContentView + transparent titlebar lets the sidebar run full
             // height with the traffic lights floating over it (System Settings look).
-            // There is no toolbar — navigation and Settings both live in the sidebar.
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = "BetterCleaner"
         window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
+        // Opaque titlebar (like BetterSettings) so the unified toolbar centers the
+        // traffic lights in the taller band — they sit lower, matching BetterSettings.
+        window.titlebarAppearsTransparent = false
+        window.titlebarSeparatorStyle = .none
         // Drag the window from any non-interactive background area (sidebar empty
-        // space, detail backgrounds) — there's no toolbar to grab anymore.
+        // space, detail backgrounds).
         window.isMovableByWindowBackground = true
         window.minSize = NSSize(width: 880, height: 500)
         super.init(window: window)
+
+        // An empty unified toolbar (no items) — its only job is to give the titlebar
+        // the taller unified height so the traffic lights sit lower, exactly like the
+        // BetterSettings window. Navigation + Settings still live in the sidebar.
+        let toolbar = NSToolbar(identifier: "BetterCleanerMainToolbar")
+        toolbar.displayMode = .iconOnly
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
 
         // Page navigation and Settings both live in the split's source-list sidebar;
         // the window controller just hosts the split.

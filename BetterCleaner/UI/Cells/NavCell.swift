@@ -129,7 +129,8 @@ final class NavIconBadge: NSView {
     }
 
     func configure(symbol: String, color: NSColor) {
-        let cfg = NSImage.SymbolConfiguration(pointSize: Metrics.badgeIconSize - 2, weight: .semibold)
+        // ~11pt glyph in the 20pt tile — smaller, with System-Settings-like padding.
+        let cfg = NSImage.SymbolConfiguration(pointSize: Metrics.badgeIconSize - 5, weight: .medium)
         let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(cfg)
         image?.isTemplate = true
         symbolView.image = image
