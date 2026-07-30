@@ -1,19 +1,21 @@
 import AppKit
 
-/// Sheet that lists `/Applications` apps which match a known Homebrew cask but were
-/// installed by hand, and lets the user "adopt" the selected ones so Homebrew manages
-/// their updates (`brew install --cask --adopt …`). Multi-select the rows to adopt.
+/// Adopts one manually-installed app at a time. Suggested and manually entered casks
+/// are both validated against the app artifact before Homebrew is allowed to run.
 @MainActor
-final class HomebrewAdoptViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
+final class HomebrewAdoptViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSComboBoxDelegate {
     private let onChanged: () -> Void
     private var candidates: [HomebrewAdopter.Candidate] = []
+    private var suggestions: [String: HomebrewAdopter.Match] = [:]
+    private var selectionGeneration = 0
 
     private let tableView = NSTableView()
     private let scrollView = NSScrollView()
     private let loadingView = LoadingStateView()
     private let emptyState = EmptyStateView(symbol: "wand.and.stars")
-    private lazy var selectAllButton = Buttons.secondary("Select All", target: self, action: #selector(selectAllRows))
-    private lazy var adoptButton = Buttons.primary("Adopt Selected", target: self, action: #selector(adopt))
+    private let caskField = NSComboBox()
+    private let statusLabel = NSTextField(wrappingLabelWithString: "Select an app to find matching casks.")
+    private lazy var adoptButton = Buttons.primary("Adopt", target: self, action: #selector(adopt))
     private lazy var closeButton = Buttons.secondary("Close", target: self, action: #selector(closeSheet))
     private static let cellID = HomebrewRowCell.identifier
 
@@ -27,7 +29,7 @@ final class HomebrewAdoptViewController: NSViewController, NSTableViewDataSource
     override func loadView() {
         let title = NSTextField(labelWithString: "Adopt Installed Apps")
         title.font = Typography.semibold(.headline)
-        let subtitle = NSTextField(wrappingLabelWithString: "Apps you installed by hand that match a Homebrew cask. Select the ones you want Homebrew to manage from now on.")
+        let subtitle = NSTextField(wrappingLabelWithString: "Choose an app, then select a matching cask or enter its full token manually.")
         subtitle.font = Typography.footnote
         subtitle.textColor = .secondaryLabelColor
 
@@ -37,7 +39,6 @@ final class HomebrewAdoptViewController: NSViewController, NSTableViewDataSource
         tableView.headerView = nil
         tableView.style = .inset
         tableView.rowHeight = Metrics.rowHeight
-        tableView.allowsMultipleSelection = true
         tableView.dataSource = self
         tableView.delegate = self
 
@@ -46,12 +47,40 @@ final class HomebrewAdoptViewController: NSViewController, NSTableViewDataSource
         scrollView.borderType = .bezelBorder
         scrollView.documentView = tableView
 
+        caskField.placeholderString = "Cask token, e.g. firefox or user/tap/cask"
+        caskField.completes = true
+        caskField.numberOfVisibleItems = 8
+        caskField.delegate = self
+        caskField.target = self
+        caskField.action = #selector(caskSelectionChanged)
+        caskField.translatesAutoresizingMaskIntoConstraints = false
+
+        let caskLabel = NSTextField(labelWithString: "Cask")
+        caskLabel.font = Typography.subheadline
+        caskLabel.setContentHuggingPriority(.required, for: .horizontal)
+        let caskRow = NSStackView(views: [caskLabel, caskField])
+        caskRow.orientation = .horizontal
+        caskRow.alignment = .centerY
+        caskRow.spacing = Spacing.sm
+
+        statusLabel.font = Typography.footnote
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.maximumNumberOfLines = 2
+        let selectionStack = NSStackView(views: [caskRow, statusLabel])
+        selectionStack.orientation = .vertical
+        selectionStack.alignment = .leading
+        selectionStack.spacing = Spacing.xs
+        selectionStack.translatesAutoresizingMaskIntoConstraints = false
+        caskRow.widthAnchor.constraint(equalTo: selectionStack.widthAnchor).isActive = true
+        statusLabel.widthAnchor.constraint(equalTo: selectionStack.widthAnchor).isActive = true
+
         adoptButton.isEnabled = false
-        let footer = NSStackView(views: [selectAllButton, NSView(), closeButton, adoptButton])
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let footer = NSStackView(views: [spacer, closeButton, adoptButton])
         footer.orientation = .horizontal
         footer.spacing = Spacing.sm
         footer.translatesAutoresizingMaskIntoConstraints = false
-        (footer.arrangedSubviews[1]).setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         let head = NSStackView(views: [title, subtitle])
         head.orientation = .vertical
@@ -60,10 +89,10 @@ final class HomebrewAdoptViewController: NSViewController, NSTableViewDataSource
         head.translatesAutoresizingMaskIntoConstraints = false
 
         let root = NSView()
-        for v in [head, scrollView, footer, emptyState, loadingView] { root.addSubview(v) }
+        for item in [head, scrollView, selectionStack, footer, emptyState, loadingView] { root.addSubview(item) }
         NSLayoutConstraint.activate([
-            root.widthAnchor.constraint(equalToConstant: 540),
-            root.heightAnchor.constraint(equalToConstant: 440),
+            root.widthAnchor.constraint(equalToConstant: 600),
+            root.heightAnchor.constraint(equalToConstant: 520),
 
             head.topAnchor.constraint(equalTo: root.topAnchor, constant: Spacing.lg),
             head.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
@@ -73,7 +102,11 @@ final class HomebrewAdoptViewController: NSViewController, NSTableViewDataSource
             scrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
             scrollView.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
 
-            footer.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: Spacing.md),
+            selectionStack.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: Spacing.md),
+            selectionStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
+            selectionStack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
+
+            footer.topAnchor.constraint(equalTo: selectionStack.bottomAnchor, constant: Spacing.md),
             footer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
             footer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
             footer.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -Spacing.lg),
@@ -98,21 +131,34 @@ final class HomebrewAdoptViewController: NSViewController, NSTableViewDataSource
     }
 
     private func scan() {
+        selectionGeneration += 1
+        candidates = []
+        tableView.reloadData()
+        clearCaskSelection("Select an app to find matching casks.")
         emptyState.isHidden = true
-        loadingView.startIndeterminate("Scanning /Applications…")
+        loadingView.startIndeterminate("Scanning applications…")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let found = HomebrewAdopter.candidates()
+            let result = Result { try HomebrewAdopter.candidates() }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.loadingView.stop()
+                guard case .success(let found) = result else {
+                    if case .failure(let error) = result {
+                        self.emptyState.isHidden = false
+                        self.emptyState.configure(symbol: "exclamationmark.triangle",
+                                                  title: "Couldn't scan apps",
+                                                  message: error.localizedDescription,
+                                                  actionTitle: "Retry", action: { [weak self] in self?.scan() })
+                    }
+                    return
+                }
                 self.candidates = found
                 self.emptyState.isHidden = !found.isEmpty
                 if found.isEmpty {
                     self.emptyState.configure(symbol: "checkmark.seal",
                                               title: "Nothing to adopt",
-                                              message: "Every matching app is already managed by Homebrew.")
+                                              message: "Every discovered app is already managed by Homebrew.")
                 }
-                self.selectAllButton.isEnabled = !found.isEmpty
                 self.tableView.reloadData()
             }
         }
@@ -124,33 +170,162 @@ final class HomebrewAdoptViewController: NSViewController, NSTableViewDataSource
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let cell = tableView.makeView(withIdentifier: Self.cellID, owner: self) as? HomebrewRowCell ?? HomebrewRowCell()
-        let c = candidates[row]
-        let icon = FileManager.default.fileExists(atPath: c.appPath)
-            ? NSWorkspace.shared.icon(forFile: c.appPath)
-            : NSImage(systemSymbolName: "macwindow", accessibilityDescription: nil)
-        cell.configure(icon: icon, title: c.appName, subtitle: "Cask: \(c.caskToken)", badgeText: nil, badgeColor: .clear)
+        let candidate = candidates[row]
+        let subtitle = candidate.app.shortVersion.map { "Version \($0)" } ?? candidate.appPath
+        cell.configure(icon: NSWorkspace.shared.icon(forFile: candidate.appPath),
+                       title: candidate.appName, subtitle: subtitle,
+                       badgeText: nil, badgeColor: .clear)
         return cell
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
-        adoptButton.isEnabled = !tableView.selectedRowIndexes.isEmpty
+        loadSuggestions()
+    }
+
+    private var selectedCandidate: HomebrewAdopter.Candidate? {
+        let row = tableView.selectedRow
+        return row >= 0 && row < candidates.count ? candidates[row] : nil
+    }
+
+    private func loadSuggestions() {
+        selectionGeneration += 1
+        let generation = selectionGeneration
+        adoptButton.title = "Adopt"
+        guard let candidate = selectedCandidate else {
+            clearCaskSelection("Select an app to find matching casks.")
+            return
+        }
+
+        clearCaskSelection("Searching Homebrew casks…")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result { try HomebrewAdopter.suggestions(for: candidate.app) }
+            DispatchQueue.main.async {
+                guard let self, generation == self.selectionGeneration,
+                      self.selectedCandidate?.app.id == candidate.app.id else { return }
+                switch result {
+                case .success(let matches):
+                    self.suggestions = Dictionary(matches.map { ($0.package.commandToken, $0) },
+                                                  uniquingKeysWith: { first, _ in first })
+                    self.caskField.addItems(withObjectValues: matches.map(\.package.commandToken))
+                    if let first = matches.first {
+                        self.caskField.stringValue = first.package.commandToken
+                        self.show(first)
+                    } else {
+                        self.setStatus("No exact artifact match found. Enter the cask token manually.")
+                    }
+                case .failure(let error):
+                    self.setStatus("Couldn't load suggestions: \(error.localizedDescription)", color: .systemRed)
+                }
+                self.updateAdoptButton()
+            }
+        }
+    }
+
+    // MARK: - Cask selection
+
+    @objc private func caskSelectionChanged() { updateCaskStatus() }
+
+    func comboBoxSelectionDidChange(_ notification: Notification) { updateCaskStatus() }
+
+    func controlTextDidChange(_ obj: Notification) { updateCaskStatus() }
+
+    private func updateCaskStatus() {
+        selectionGeneration += 1
+        adoptButton.title = "Adopt"
+        let token = caskField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let match = suggestions[token] {
+            show(match)
+        } else if !token.isEmpty {
+            setStatus("The manual token will be validated before adoption.")
+        } else {
+            setStatus("Select a suggested cask or enter its token manually.")
+        }
+        updateAdoptButton()
+    }
+
+    private func show(_ match: HomebrewAdopter.Match) {
+        let version = match.package.latestVersion.isEmpty ? "unknown version" : "version \(match.package.latestVersion)"
+        if match.versionCompatible {
+            setStatus("\(match.package.displayName), \(version) — exact app artifact match.")
+        } else {
+            setStatus("\(match.package.displayName), \(version) — version differs; confirmation required.", color: .systemOrange)
+        }
+    }
+
+    private func clearCaskSelection(_ message: String) {
+        suggestions = [:]
+        caskField.removeAllItems()
+        caskField.stringValue = ""
+        setStatus(message)
+        updateAdoptButton()
+    }
+
+    private func setStatus(_ text: String, color: NSColor = .secondaryLabelColor) {
+        statusLabel.stringValue = text
+        statusLabel.textColor = color
+    }
+
+    private func updateAdoptButton() {
+        adoptButton.isEnabled = selectedCandidate != nil
+            && !caskField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - Actions
 
-    @objc private func selectAllRows() {
-        tableView.selectRowIndexes(IndexSet(0..<candidates.count), byExtendingSelection: false)
-        adoptButton.isEnabled = !candidates.isEmpty
+    @objc private func adopt() {
+        guard let candidate = selectedCandidate else { return }
+        let token = caskField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { return }
+        let generation = selectionGeneration
+
+        adoptButton.isEnabled = false
+        adoptButton.title = "Validating…"
+        setStatus("Validating \(token)…")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result { try HomebrewAdopter.validateManualToken(token, for: candidate.app) }
+            DispatchQueue.main.async {
+                guard let self, self.selectionGeneration == generation,
+                      self.selectedCandidate?.app.id == candidate.app.id,
+                      self.caskField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) == token else { return }
+                self.adoptButton.title = "Adopt"
+                self.updateAdoptButton()
+                switch result {
+                case .success(let match):
+                    guard match.versionCompatible || self.confirmVersionMismatch(match, app: candidate.app) else { return }
+                    self.runAdoption(match, candidate: candidate)
+                case .failure(let error):
+                    self.setStatus(error.localizedDescription, color: .systemRed)
+                }
+            }
+        }
     }
 
-    @objc private func adopt() {
-        let tokens = tableView.selectedRowIndexes.map { candidates[$0].caskToken }
-        guard !tokens.isEmpty else { return }
+    private func confirmVersionMismatch(_ match: HomebrewAdopter.Match, app: InstalledApp) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Versions don't match"
+        alert.informativeText = "The installed app reports \(app.shortVersion ?? "an unknown version"), while \(match.package.displayName) reports \(match.package.latestVersion.isEmpty ? "an unknown version" : match.package.latestVersion). Homebrew will still verify that the existing artifact is identical."
+        alert.addButton(withTitle: "Try to Adopt")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func runAdoption(_ match: HomebrewAdopter.Match, candidate: HomebrewAdopter.Candidate) {
         let sheet = HomebrewProgressViewController(
-            title: "Adopting \(tokens.count) app\(tokens.count == 1 ? "" : "s")…",
-            arguments: HomebrewActions.adoptArgs(tokens: tokens)
-        ) { [onChanged] success in
-            if success { onChanged() }
+            title: "Adopting \(candidate.appName)…",
+            arguments: HomebrewActions.adoptArgs(tokens: [match.package.commandToken])
+        ) { [weak self] success in
+            guard success, let self else { return }
+            self.onChanged()
+            self.candidates.removeAll { $0.app.id == candidate.app.id }
+            self.tableView.reloadData()
+            self.clearCaskSelection(self.candidates.isEmpty
+                ? "Every discovered app is already managed by Homebrew."
+                : "Select another app to adopt.")
+            self.emptyState.isHidden = !self.candidates.isEmpty
+            if self.candidates.isEmpty {
+                self.emptyState.configure(symbol: "checkmark.seal", title: "Nothing to adopt",
+                                          message: "Every discovered app is already managed by Homebrew.")
+            }
         }
         presentAsSheet(sheet)
     }

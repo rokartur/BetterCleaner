@@ -6,18 +6,34 @@ import Foundation
 /// can show a live log, and supports cancellation via `cancel()`.
 ///
 /// Like every brew call, the process runs as the logged-in user (never sudo).
-/// One runner drives one invocation; create a fresh instance per operation.
+/// One runner drives one plan at a time. Required steps stop at the first failure;
+/// finalizers always run and ignore cancellation so state restoration can finish.
 final class HomebrewRunner {
     private let lock = NSLock()
+    private let executablePath: String?
+    private let environment: [String: String]
     private var process: Process?
+    private var processIsFinalizer = false
     private var cancelled = false
+
+    init(executablePath: String? = HomebrewEnvironment.brewPath,
+         environment: [String: String] = HomebrewEnvironment.environment()) {
+        self.executablePath = executablePath
+        self.environment = environment
+    }
 
     /// Run `brew <arguments>`. `onLine` and `completion` are always delivered on the
     /// main queue. `completion(true)` means the process exited 0 and wasn't cancelled.
     func run(_ arguments: [String],
              onLine: @escaping (String) -> Void,
              completion: @escaping (Bool) -> Void) {
-        guard let brew = HomebrewEnvironment.brewPath else {
+        run(HomebrewCommandPlan(arguments: arguments), onLine: onLine, completion: completion)
+    }
+
+    func run(_ plan: HomebrewCommandPlan,
+             onLine: @escaping (String) -> Void,
+             completion: @escaping (Bool) -> Void) {
+        guard executablePath != nil else {
             DispatchQueue.main.async {
                 onLine("Homebrew is not installed.")
                 completion(false)
@@ -25,10 +41,62 @@ final class HomebrewRunner {
             return
         }
 
+        lock.lock()
+        cancelled = false
+        process = nil
+        processIsFinalizer = false
+        lock.unlock()
+
+        let required = plan.steps.filter { !$0.isFinalizer }
+        let finalizers = plan.steps.filter(\.isFinalizer)
+
+        func finish(_ success: Bool) {
+            DispatchQueue.main.async { completion(success) }
+        }
+
+        func runFinalizer(_ index: Int, requiredSucceeded: Bool, finalizersSucceeded: Bool) {
+            guard index < finalizers.count else {
+                finish(requiredSucceeded && finalizersSucceeded && !self.isCancelled)
+                return
+            }
+            self.runProcess(finalizers[index].arguments, isFinalizer: true, onLine: onLine) { succeeded in
+                runFinalizer(index + 1,
+                             requiredSucceeded: requiredSucceeded,
+                             finalizersSucceeded: finalizersSucceeded && succeeded)
+            }
+        }
+
+        func runRequired(_ index: Int) {
+            guard !self.isCancelled else {
+                runFinalizer(0, requiredSucceeded: false, finalizersSucceeded: true)
+                return
+            }
+            guard index < required.count else {
+                runFinalizer(0, requiredSucceeded: true, finalizersSucceeded: true)
+                return
+            }
+            self.runProcess(required[index].arguments, isFinalizer: false, onLine: onLine) { succeeded in
+                if succeeded && !self.isCancelled {
+                    runRequired(index + 1)
+                } else {
+                    runFinalizer(0, requiredSucceeded: false, finalizersSucceeded: true)
+                }
+            }
+        }
+
+        runRequired(0)
+    }
+
+    private func runProcess(_ arguments: [String], isFinalizer: Bool,
+                            onLine: @escaping (String) -> Void,
+                            completion: @escaping (Bool) -> Void) {
+        guard let executablePath else { completion(false); return }
+
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: brew)
+        process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
-        process.environment = HomebrewEnvironment.environment()
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
 
         // Merge stdout + stderr into one pipe so the live log reads in order.
         let pipe = Pipe()
@@ -58,29 +126,44 @@ final class HomebrewRunner {
         }
 
         process.terminationHandler = { [weak self] proc in
-            let ok = proc.terminationStatus == 0 && !(self?.isCancelled ?? false)
-            DispatchQueue.main.async { completion(ok) }
+            self?.clearProcess(proc)
+            completion(proc.terminationStatus == 0)
         }
 
-        lock.lock(); self.process = process; lock.unlock()
+        lock.lock()
+        self.process = process
+        processIsFinalizer = isFinalizer
+        lock.unlock()
 
         do {
             try process.run()
+            if isCancelled && !isFinalizer && process.isRunning { process.terminate() }
         } catch {
             pipe.fileHandleForReading.readabilityHandler = nil
+            clearProcess(process)
             DispatchQueue.main.async {
                 onLine("Failed to launch brew: \(error.localizedDescription)")
-                completion(false)
             }
+            completion(false)
         }
+    }
+
+    private func clearProcess(_ finished: Process) {
+        lock.lock()
+        if process === finished {
+            process = nil
+            processIsFinalizer = false
+        }
+        lock.unlock()
     }
 
     /// Terminate the running process (SIGTERM) and mark the run cancelled.
     func cancel() {
         lock.lock()
         cancelled = true
-        process?.terminate()
+        let running = processIsFinalizer ? nil : process
         lock.unlock()
+        if running?.isRunning == true { running?.terminate() }
     }
 
     var isCancelled: Bool {

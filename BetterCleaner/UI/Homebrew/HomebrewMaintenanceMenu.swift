@@ -1,8 +1,8 @@
 import AppKit
 
 /// Builds and presents the Homebrew "maintenance" menu (the … button): update,
-/// upgrade-all, cleanup, autoremove, Brewfile import/export, adopt apps, and the CVE
-/// scan. Long operations run in the streaming progress sheet; cleanup/autoremove
+/// upgrade-all, cleanup, autoremove, Brewfile import/export, and adopt apps.
+/// Long operations run in the streaming progress sheet; cleanup/autoremove
 /// first show a dry-run preview the user confirms.
 ///
 /// Retained for the lifetime of the menu interaction via a static reference so any
@@ -27,8 +27,7 @@ final class HomebrewMaintenanceMenu: NSObject {
     private func show(from anchor: NSButton) {
         let menu = NSMenu()
         add(menu, "Update Homebrew", #selector(update))
-        add(menu, "Upgrade All", #selector(upgradeAll))
-        add(menu, "Upgrade All (incl. auto-update casks)", #selector(upgradeAllGreedy))
+        add(menu, "Upgrade All Outdated", #selector(upgradeAll))
         menu.addItem(.separator())
         add(menu, "Clean Up Cache…", #selector(cleanup))
         add(menu, "Remove Unused Dependencies…", #selector(autoremove))
@@ -37,7 +36,6 @@ final class HomebrewMaintenanceMenu: NSObject {
         add(menu, "Import Brewfile…", #selector(importBrewfile))
         menu.addItem(.separator())
         add(menu, "Adopt Installed Apps…", #selector(adoptApps))
-        add(menu, "Scan for Vulnerabilities…", #selector(scanVulnerabilities))
 
         let origin = NSPoint(x: 0, y: anchor.bounds.height + 4)
         menu.popUp(positioning: nil, at: origin, in: anchor)
@@ -52,15 +50,30 @@ final class HomebrewMaintenanceMenu: NSObject {
     // MARK: - Simple mutations
 
     @objc private func update() { runMutation("Updating Homebrew…", HomebrewActions.updateArgs()) }
-    @objc private func upgradeAll() { runMutation("Upgrading all packages…", HomebrewActions.upgradeAllArgs(greedy: false)) }
-    @objc private func upgradeAllGreedy() { runMutation("Upgrading all packages…", HomebrewActions.upgradeAllArgs(greedy: true)) }
+    @objc private func upgradeAll() {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result { try HomebrewService.installedPackages().filter(\.isOutdated) }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .failure(let error):
+                    self.showAlert("Couldn't load updates", error.localizedDescription)
+                case .success(let packages) where packages.isEmpty:
+                    self.showAlert("Homebrew is up to date", "No outdated packages were found.")
+                case .success(let packages):
+                    self.runMutation("Upgrading \(packages.count) packages…",
+                                     packages.map(HomebrewActions.upgradePlan))
+                }
+            }
+        }
+    }
 
     // MARK: - Preview-then-confirm mutations
 
     @objc private func cleanup() {
         previewThenRun(
             title: "Clean up Homebrew?",
-            preview: { HomebrewService.cleanupPreview() },
+            preview: { try HomebrewService.cleanupPreview() },
             confirm: "Clean Up",
             runTitle: "Cleaning up…",
             args: HomebrewActions.cleanupArgs()
@@ -71,7 +84,7 @@ final class HomebrewMaintenanceMenu: NSObject {
         previewThenRun(
             title: "Remove unused dependencies?",
             preview: {
-                let names = HomebrewService.autoremovePreview()
+                let names = try HomebrewService.autoremovePreview()
                 return names.isEmpty ? "" : "These packages are no longer needed:\n\n" + names.joined(separator: ", ")
             },
             confirm: "Remove",
@@ -109,20 +122,24 @@ final class HomebrewMaintenanceMenu: NSObject {
         presenter.presentAsSheet(vc)
     }
 
-    @objc private func scanVulnerabilities() {
-        guard let presenter else { return }
-        let vc = HomebrewVulnerabilityViewController()
-        presenter.presentAsSheet(vc)
-    }
-
     // MARK: - Helpers
 
-    private func previewThenRun(title: String, preview: @escaping () -> String,
+    private func previewThenRun(title: String, preview: @escaping () throws -> String,
                                 confirm: String, runTitle: String, args: [String]) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let text = preview()
+            let result = Result { try preview() }
             DispatchQueue.main.async {
                 guard let self else { return }
+                guard case .success(let text) = result else {
+                    if case .failure(let error) = result {
+                        let alert = NSAlert()
+                        alert.messageText = "Couldn't prepare Homebrew preview"
+                        alert.informativeText = error.localizedDescription
+                        alert.addButton(withTitle: "OK")
+                        alert.runModal()
+                    }
+                    return
+                }
                 let alert = NSAlert()
                 alert.messageText = title
                 alert.informativeText = text.isEmpty ? "Nothing to do." : text
@@ -140,10 +157,22 @@ final class HomebrewMaintenanceMenu: NSObject {
     }
 
     private func runMutation(_ title: String, _ args: [String]) {
+        runMutation(title, [HomebrewCommandPlan(arguments: args)])
+    }
+
+    private func runMutation(_ title: String, _ plans: [HomebrewCommandPlan]) {
         guard let presenter else { return }
-        let sheet = HomebrewProgressViewController(title: title, arguments: args) { [onChanged] success in
+        let sheet = HomebrewProgressViewController(title: title, plans: plans) { [onChanged] success in
             if success { onChanged() }
         }
         presenter.presentAsSheet(sheet)
+    }
+
+    private func showAlert(_ title: String, _ message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 }

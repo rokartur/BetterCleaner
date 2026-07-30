@@ -38,8 +38,11 @@ enum NavCatalog {
     /// Homebrew management — its own group, one row per category (TapHouse-style).
     static let homebrew: [NavSection] = [
         NavSection(id: "brew.installed", title: "Installed", icon: "shippingbox.fill", enabled: true, color: .systemGreen),
+        NavSection(id: "brew.available", title: "Available", icon: "square.grid.2x2.fill", enabled: true, color: .systemIndigo),
         NavSection(id: "brew.services", title: "Services", icon: "gearshape.2.fill", enabled: true, color: .systemTeal),
         NavSection(id: "brew.taps", title: "Taps", icon: "arrow.triangle.branch", enabled: true, color: .systemBlue),
+        NavSection(id: "brew.autoupdate", title: "Auto Update", icon: "clock.arrow.2.circlepath", enabled: true, color: .systemOrange),
+        NavSection(id: "brew.maintenance", title: "Maintenance", icon: "wrench.and.screwdriver.fill", enabled: true, color: .systemPurple),
     ]
 
     static let system: [NavSection] = [

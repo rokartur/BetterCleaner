@@ -145,7 +145,7 @@ final class HomebrewRowCell: NSTableCellView {
         versionField.isHidden = m.version.isEmpty
     }
 
-    /// Back-compat path for the search / adopt / CVE sheets, which pass a plain image
+    /// Back-compat path for the search / adopt sheets, which pass a plain image
     /// and an optional colored badge.
     func configure(icon: NSImage?, title: String, subtitle: String, badgeText: String?, badgeColor: NSColor) {
         let leading: HomebrewRowModel.Leading = icon.map { .appIcon($0) } ?? .glyph(symbol: "shippingbox", color: .systemGray)

@@ -1,5 +1,30 @@
 import Foundation
 
+/// One Homebrew mutation with required work followed by cleanup that must run even
+/// when a required command fails or the user cancels it.
+struct HomebrewCommandPlan: Equatable {
+    enum Step: Equatable {
+        case required([String])
+        case finally([String])
+
+        var arguments: [String] {
+            switch self {
+            case .required(let arguments), .finally(let arguments): arguments
+            }
+        }
+
+        var isFinalizer: Bool {
+            if case .finally = self { return true }
+            return false
+        }
+    }
+
+    let steps: [Step]
+
+    init(steps: [Step]) { self.steps = steps }
+    init(arguments: [String]) { steps = [.required(arguments)] }
+}
+
 /// Pure argument builders for every Homebrew mutation, plus a blocking convenience
 /// runner for the quick ones (service control, tap/untap). The builders are the
 /// unit-tested core — keeping the brew command spelling in one place means the UI
@@ -17,6 +42,10 @@ enum HomebrewActions {
     /// `brew uninstall [--cask] [--zap] <token>`. `zap` (cask-only) also removes every
     /// file the cask ever created — the "complete uninstall" BetterCleaner is about.
     static func uninstallArgs(_ pkg: HomebrewPackage, zap: Bool) -> [String] {
+        uninstallArgs(pkg.reference, zap: zap)
+    }
+
+    static func uninstallArgs(_ pkg: HomebrewPackageRef, zap: Bool) -> [String] {
         var args = ["uninstall"]
         if pkg.isCask {
             args.append("--cask")
@@ -30,21 +59,28 @@ enum HomebrewActions {
     static func upgradeArgs(_ pkg: HomebrewPackage) -> [String] {
         var args = ["upgrade"]
         if pkg.isCask { args.append("--cask") }
-        args.append(pkg.token)
+        args.append(pkg.commandToken)
         return args
     }
 
-    /// `brew upgrade [--greedy]` — upgrade everything; `--greedy` also bumps casks
-    /// that auto-update.
-    static func upgradeAllArgs(greedy: Bool) -> [String] {
-        greedy ? ["upgrade", "--greedy"] : ["upgrade"]
+    /// Pinned packages must be temporarily unpinned, then re-pinned even if the
+    /// upgrade fails or is cancelled.
+    static func upgradePlan(_ pkg: HomebrewPackage) -> HomebrewCommandPlan {
+        guard pkg.isPinned else {
+            return HomebrewCommandPlan(arguments: upgradeArgs(pkg))
+        }
+        return HomebrewCommandPlan(steps: [
+            .required(pinArgs(pkg, pin: false)),
+            .required(upgradeArgs(pkg)),
+            .finally(pinArgs(pkg, pin: true)),
+        ])
     }
 
     /// `brew install [--cask] <token>`.
-    static func installArgs(token: String, isCask: Bool) -> [String] {
+    static func installArgs(_ package: HomebrewPackageRef) -> [String] {
         var args = ["install"]
-        if isCask { args.append("--cask") }
-        args.append(token)
+        if package.isCask { args.append("--cask") }
+        args.append(package.token)
         return args
     }
 
@@ -54,9 +90,13 @@ enum HomebrewActions {
         ["install", "--cask", "--adopt"] + tokens
     }
 
-    /// `brew pin <name>` / `brew unpin <name>` (formulae only).
+    /// `brew pin|unpin --formula|--cask <name>`.
     static func pinArgs(_ pkg: HomebrewPackage) -> [String] {
-        [pkg.isPinned ? "unpin" : "pin", pkg.token]
+        pinArgs(pkg, pin: !pkg.isPinned)
+    }
+
+    private static func pinArgs(_ pkg: HomebrewPackage, pin: Bool) -> [String] {
+        [pin ? "pin" : "unpin", pkg.isCask ? "--cask" : "--formula", pkg.commandToken]
     }
 
     // MARK: - Services
@@ -67,6 +107,16 @@ enum HomebrewActions {
 
     // MARK: - Taps
 
+    static func validTapName(_ input: String) -> String? {
+        let name = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = name.split(separator: "/", omittingEmptySubsequences: false)
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        guard parts.count == 2, parts.allSatisfy({ part in
+            !part.isEmpty && part.unicodeScalars.allSatisfy(allowed.contains) && !part.hasPrefix("-")
+        }) else { return nil }
+        return name
+    }
+
     static func tapArgs(_ name: String) -> [String] { ["tap", name] }
     static func untapArgs(_ name: String) -> [String] { ["untap", name] }
 
@@ -74,8 +124,10 @@ enum HomebrewActions {
 
     static func updateArgs() -> [String] { ["update"] }
 
-    /// `brew cleanup` (real run scrubs the download cache too).
-    static func cleanupArgs() -> [String] { ["cleanup", "-s"] }
+    /// Preview and execution share the same scrub scope; dry-run only adds one flag.
+    static func cleanupArgs(dryRun: Bool = false) -> [String] {
+        ["cleanup", "-s"] + (dryRun ? ["--dry-run"] : [])
+    }
 
     static func autoremoveArgs() -> [String] { ["autoremove"] }
 

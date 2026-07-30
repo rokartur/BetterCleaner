@@ -35,6 +35,8 @@ final class MainSplitViewController: NSSplitViewController {
     /// detail in content. Coordinates search & maintenance sheets.
     private lazy var homebrewListVC = HomebrewListViewController()
     private lazy var homebrewDetailVC = HomebrewDetailViewController()
+    private lazy var homebrewAutomationVC = HomebrewAutomationViewController()
+    private lazy var homebrewMaintenanceVC = HomebrewMaintenanceViewController()
     private lazy var developmentVC = DevelopmentViewController()
     private lazy var deleteHistoryVC = DeleteHistoryViewController()
 
@@ -48,10 +50,10 @@ final class MainSplitViewController: NSSplitViewController {
     private var reclaimable: [String: Int64] = [:]
 
     /// Every selectable page other than the default Applications page.
-    private static let pageIDs: Set<String> = ["junk", "orphaned", "pkg", "brew.installed", "brew.services", "brew.taps", "devenv", "history"]
+    private static let pageIDs: Set<String> = ["junk", "orphaned", "pkg", "brew.installed", "brew.available", "brew.services", "brew.taps", "brew.autoupdate", "brew.maintenance", "devenv", "history"]
     /// Pages that show the collapsible left sidebar (a master list in it). Every
     /// other page collapses the sidebar and takes the content area full-width.
-    private static let sidebarPageIDs: Set<String> = ["applications", "pkg", "brew.installed", "brew.services", "brew.taps"]
+    private static let sidebarPageIDs: Set<String> = ["applications", "pkg", "brew.installed", "brew.available", "brew.services", "brew.taps"]
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -132,13 +134,9 @@ final class MainSplitViewController: NSSplitViewController {
     private func wireHomebrew() {
         homebrewListVC.onSelect = { [weak self] selection in self?.homebrewDetailVC.show(selection) }
         homebrewDetailVC.onChanged = { [weak self] in self?.homebrewListVC.rescan() }
-        homebrewListVC.onAddRequested = { [weak self] in self?.presentHomebrewSearch() }
+        homebrewMaintenanceVC.onChanged = { [weak self] in self?.homebrewListVC.rescan() }
+        homebrewListVC.onBrowseRequested = { [weak self] in self?.select("brew.available") }
         homebrewListVC.onMaintenanceRequested = { [weak self] anchor in self?.presentHomebrewMaintenance(anchor) }
-    }
-
-    private func presentHomebrewSearch() {
-        let search = HomebrewSearchViewController { [weak self] in self?.homebrewListVC.rescan() }
-        presentAsSheet(search)
     }
 
     private func presentHomebrewMaintenance(_ anchor: NSButton) {
@@ -285,12 +283,17 @@ final class MainSplitViewController: NSSplitViewController {
             sidebarContainer.setContent(packageListVC)
             container.setContent(packageDetailVC)
             packageListVC.startIfNeeded()
-        case "brew.installed", "brew.services", "brew.taps":
+        case "brew.installed", "brew.available", "brew.services", "brew.taps":
             let category: HomebrewCategory = resolved == "brew.services" ? .services
-                : (resolved == "brew.taps" ? .taps : .installed)
+                : (resolved == "brew.taps" ? .taps
+                   : (resolved == "brew.available" ? .available : .installed))
             sidebarContainer.setContent(homebrewListVC)
             container.setContent(homebrewDetailVC)
             homebrewListVC.setCategory(category)
+        case "brew.autoupdate":
+            container.setContent(homebrewAutomationVC)
+        case "brew.maintenance":
+            container.setContent(homebrewMaintenanceVC); homebrewMaintenanceVC.startIfNeeded()
         case "devenv":
             container.setContent(developmentVC); developmentVC.startIfNeeded()
         case "history":
