@@ -36,7 +36,7 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
     private let fileScroll = NSScrollView()
     private lazy var refreshButton = Buttons.secondary("Refresh", target: self, action: #selector(reloadClicked))
     private lazy var selectAllButton = Buttons.secondary("Select All", target: self, action: #selector(selectAllToggle))
-    private lazy var clearButton = Buttons.secondary("Clear History", target: self, action: #selector(clearHistoryClicked))
+    private lazy var clearButton = Buttons.destructive("Clear History", target: self, action: #selector(clearHistoryClicked))
     private lazy var restoreButton = Buttons.primary("Restore", target: self, action: #selector(restoreSelected))
     private let statusLabel = NSTextField(labelWithString: "")
     private let emptyState = EmptyStateView(symbol: "clock.arrow.circlepath")
@@ -46,16 +46,16 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
     private static let fileCellID = NSUserInterfaceItemIdentifier("FileRecordCell")
 
     private let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.timeStyle = .short
-        f.dateStyle = .none
-        return f
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
     }()
     private let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        return f
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
     }()
 
     /// "Today 14:32" / "Yesterday 09:10" / "3 Mar 2026 at 14:32".
@@ -67,8 +67,8 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
     }
 
     override func loadView() {
-        if let s = NavCatalog.section(id: "history") { header.setBadge(symbol: s.icon) }
-        header.title = "Delete History"
+        // The toolbar's window title names the page; the header keeps only the
+        // batches/items/size metrics line.
         header.translatesAutoresizingMaskIntoConstraints = false
 
         searchField.placeholderString = "Search deletions"
@@ -96,7 +96,9 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
         // NSSplitView that, with autolayout panes, could starve the detail pane of
         // width and hide the file list entirely.
         let root = NSView()
-        for v in [header, searchField, clearButton, batchScroll, fileScroll, footer, emptyState, loadingView] { root.addSubview(v) }
+        for childView in [header, searchField, clearButton, batchScroll, fileScroll, footer, emptyState, loadingView] {
+            root.addSubview(childView)
+        }
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: root.topAnchor, constant: Spacing.md),
             header.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
@@ -116,7 +118,7 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
             batchScroll.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: Spacing.md),
             batchScroll.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
             batchScroll.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -Spacing.sm),
-            batchScroll.widthAnchor.constraint(equalToConstant: Metrics.masterDetailWidth),
+            batchScroll.widthAnchor.constraint(equalToConstant: Metrics.listColumnDefaultWidth),
 
             fileScroll.topAnchor.constraint(equalTo: batchScroll.topAnchor),
             fileScroll.leadingAnchor.constraint(equalTo: batchScroll.trailingAnchor, constant: Spacing.md),
@@ -148,10 +150,27 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
 
         let totalItems = entries.reduce(0) { $0 + $1.count }
         let totalBytes = entries.reduce(Int64(0)) { $0 + $1.bytes }
-        header.summary = entries.isEmpty
-            ? "No deletions recorded yet"
-            : "\(entries.count) batch\(entries.count == 1 ? "" : "es") · \(totalItems) item\(totalItems == 1 ? "" : "s") · \(FileSize.string(totalBytes))"
-        clearButton.isEnabled = !entries.isEmpty
+        // With no history the empty state already tells the whole story — repeating
+        // it in the header just prints the same sentence twice.
+        let hasHistory = !entries.isEmpty
+        if hasHistory {
+            header.setSummary(
+                "\(entries.count) batch\(entries.count == 1 ? "" : "es") · \(totalItems) item\(totalItems == 1 ? "" : "s") · ",
+                metric: FileSize.string(totalBytes)
+            )
+        } else {
+            header.summary = ""
+        }
+        // Nothing to search, clear, refresh or restore when the log is empty — hide
+        // the toolbar and let the action bar collapse instead of parading dead
+        // controls. Navigating to this page always re-reads the log, so a Refresh
+        // button is not the user's only way back to fresh data.
+        searchField.isHidden = !hasHistory
+        clearButton.isHidden = !hasHistory
+        refreshButton.isHidden = !hasHistory
+        selectAllButton.isHidden = !hasHistory
+        restoreButton.isHidden = !hasHistory
+        clearButton.isEnabled = hasHistory
 
         batchTable.reloadData()
         if !visibleEntries.isEmpty {
@@ -164,10 +183,11 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
 
     /// Narrow `entries` down to the current search term (origin or any path).
     private func applyFilter() {
-        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { visibleEntries = entries; return }
-        visibleEntries = entries.filter { e in
-            e.origin.lowercased().contains(q) || e.paths.contains { $0.lowercased().contains(q) }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { visibleEntries = entries; return }
+        visibleEntries = entries.filter { entry in
+            entry.origin.lowercased().contains(query)
+                || entry.paths.contains { $0.lowercased().contains(query) }
         }
     }
 
@@ -183,8 +203,8 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
         if entries.isEmpty {
             emptyState.isHidden = false
             emptyState.configure(symbol: "clock.arrow.circlepath",
-                                 title: "No deletions recorded yet",
-                                 message: "Items you move to the Trash from BetterCleaner appear here, ready to restore.")
+                                 title: "Nothing Removed Yet",
+                                 message: "Anything BetterCleaner moves to the Trash is logged here, ready to put back.")
         } else if visibleEntries.isEmpty {
             emptyState.isHidden = false
             emptyState.configure(symbol: "magnifyingglass",
@@ -215,23 +235,41 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
     // MARK: - Status of one record
 
     private enum FileStatus {
-        case recoverable, notRecoverable, removedFromTrash, originalExists, protected, logged
+        case recoverable, notRecoverable, removedFromTrash, restored, protected, logged
         var label: String {
             switch self {
             case .recoverable: return "In Trash"
             case .notRecoverable: return "Not recoverable"
             case .removedFromTrash: return "Emptied"
-            case .originalExists: return "Original exists"
+            // The file sits at its original path again — whether this app put it
+            // back or something recreated it, "Restored" is the fact the user needs
+            // and it can't be restored over.
+            case .restored: return "Restored"
             case .protected: return "Protected"
             case .logged: return "Removed"
             }
         }
-        var color: NSColor {
+        var color: NSColor? {
             switch self {
             case .recoverable: return .systemGreen
-            case .originalExists: return .systemBlue
+            // Blue, not green: green means "you can act on this" (still restorable).
+            // Restored is a finished state, so it must not read as actionable.
+            case .restored: return .systemBlue
             case .protected: return .systemOrange
-            case .notRecoverable, .removedFromTrash, .logged: return .secondaryLabelColor
+            // Neutral, not a tinted state: "gone" is the absence of an option, and
+            // tinting it grey-on-grey only added noise to the column.
+            case .notRecoverable, .removedFromTrash, .logged: return nil
+            }
+        }
+        /// Carries the same meaning as `color`, so the status survives grayscale,
+        /// Increased Contrast, and colour-blind vision.
+        var symbol: String {
+            switch self {
+            case .recoverable: return "arrow.uturn.backward.circle.fill"
+            case .restored: return "checkmark.circle.fill"
+            case .protected: return "lock.fill"
+            case .notRecoverable, .removedFromTrash: return "xmark.circle.fill"
+            case .logged: return "minus.circle.fill"
             }
         }
         var isRestorable: Bool { self == .recoverable }
@@ -249,8 +287,11 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
         let fm = FileManager.default
         guard rec.recoverable, let trashPath = rec.trashPath else { return .notRecoverable }
         if FileMatcher.isProtected(url: URL(fileURLWithPath: rec.originalPath)) { return .protected }
+        // Back at its original path wins over "no longer in the Trash" — a *successful
+        // restore* satisfies both, and reporting it as "Emptied" told the user their
+        // file was gone moments after the app put it back.
+        if fm.fileExists(atPath: rec.originalPath) { return .restored }
         if !fm.fileExists(atPath: trashPath) { return .removedFromTrash }
-        if fm.fileExists(atPath: rec.originalPath) { return .originalExists }
         return .recoverable
     }
 
@@ -279,13 +320,15 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
         let restorablePaths = selectedFiles.filter { displayStatus($0).isRestorable }.map { $0.originalPath }
         let toRestore = restorablePaths.filter { checkedPaths.contains($0) }
         restoreButton.isEnabled = !toRestore.isEmpty
-        restoreButton.title = toRestore.isEmpty ? "Restore" : "Restore (\(toRestore.count))"
+        // Name the consequence: how many files land back in place on click.
+        restoreButton.title = toRestore.isEmpty ? "Restore" : "Restore \(toRestore.count)"
         restoreButton.toolTip = restorablePaths.isEmpty ? "Nothing in this batch can be restored." : nil
 
         let allChecked = !restorablePaths.isEmpty && restorablePaths.allSatisfy { checkedPaths.contains($0) }
         selectAllButton.title = allChecked ? "Deselect All" : "Select All"
         selectAllButton.isEnabled = !restorablePaths.isEmpty
         statusLabel.stringValue = selectedFiles.isEmpty ? "" : "\(restorablePaths.count) of \(selectedFiles.count) restorable"
+        statusLabel.isHidden = selectedFiles.isEmpty
     }
 
     // MARK: - Actions
@@ -324,9 +367,7 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
         let alert = NSAlert()
         alert.messageText = "Clear Delete History?"
         alert.informativeText = "This removes the record of past deletions. Files already in the Trash are not affected and can still be restored from the Trash."
-        alert.addButton(withTitle: "Clear History")
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.hasDestructiveAction = true
+        Buttons.addDestructiveConfirmation("Clear History", to: alert)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         TrashHistory.clear()
         searchField.stringValue = ""
@@ -347,7 +388,7 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
     }
 
     @objc private func restoreOneClicked() {
-        let row = fileTable.clickedRow
+        let row = fileTable.clickedRow >= 0 ? fileTable.clickedRow : fileTable.selectedRow
         guard row >= 0, row < selectedFiles.count else { return }
         let rec = selectedFiles[row]
         guard displayStatus(rec).isRestorable else { NSSound.beep(); return }
@@ -377,10 +418,10 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
                 self.reload()
                 if result.cancelled && result.restored.isEmpty { return }
                 if !result.failed.isEmpty {
-                    let a = NSAlert()
-                    a.messageText = "Some Items Couldn't Be Restored"
-                    a.informativeText = "\(result.restored.count) restored, \(result.failed.count) failed."
-                    a.runModal()
+                    let alert = NSAlert()
+                    alert.messageText = "Some Items Couldn't Be Restored"
+                    alert.informativeText = "\(result.restored.count) restored, \(result.failed.count) failed."
+                    alert.runModal()
                 }
             }
         }
@@ -403,7 +444,7 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
     }
 
     @objc private func copyFilePath() {
-        let row = fileTable.clickedRow
+        let row = fileTable.clickedRow >= 0 ? fileTable.clickedRow : fileTable.selectedRow
         guard row >= 0, row < selectedFiles.count else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(selectedFiles[row].originalPath, forType: .string)
@@ -472,7 +513,8 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
                        name: (rec.originalPath as NSString).lastPathComponent,
                        path: (rec.originalPath as NSString).abbreviatingWithTildeInPath,
                        statusText: st.label,
-                       statusColor: st.color,
+                       statusSymbol: st.symbol,
+                       statusTint: st.color,
                        checkable: st.isRestorable,
                        checked: checkedPaths.contains(rec.originalPath))
         cell.fullPath = rec.originalPath
@@ -480,7 +522,7 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
         return cell
     }
 
-    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { tableView === batchTable }
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { true }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard (notification.object as? NSTableView) === batchTable else { return }
@@ -496,26 +538,25 @@ final class DeleteHistoryViewController: NSViewController, NSTableViewDataSource
 
 // MARK: - Cells
 
-/// A removal batch: tinted circular badge, origin title, friendly date/size
-/// subtitle, and a green "N" pill counting how many files can still be restored.
+/// A removal batch: a quiet leading glyph, origin title, friendly date/size
+/// subtitle, and a green "N" chip counting how many files can still be restored.
 private final class HistoryBatchCell: NSTableCellView {
     private let badge = NSImageView()
-    private let badgeBG = NSView()
     private let title = NSTextField(labelWithString: "")
     private let subtitle = NSTextField(labelWithString: "")
-    private let countPill = PillLabel()
+    private let countPill = StatusChip()
 
     init(id: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
         identifier = id
-        badgeBG.translatesAutoresizingMaskIntoConstraints = false
-        badgeBG.wantsLayer = true
-        badgeBG.layer?.cornerRadius = 16
-        badgeBG.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
+        // A plain secondary glyph, not an accent-tinted disc. Every row carried the
+        // same clock, so the disc encoded nothing — it just spent the accent colour,
+        // which belongs to selection, progress and the primary action.
         badge.translatesAutoresizingMaskIntoConstraints = false
         badge.image = NSImage(systemSymbolName: "clock.arrow.circlepath", accessibilityDescription: nil)
-        badge.contentTintColor = .controlAccentColor
-        badge.symbolConfiguration = .init(pointSize: 15, weight: .semibold)
+        badge.contentTintColor = .secondaryLabelColor
+        badge.symbolConfiguration = .init(pointSize: 15, weight: .regular)
+        badge.setAccessibilityElement(false)
         title.font = Typography.medium(.body)
         title.lineBreakMode = .byTruncatingTail
         subtitle.font = Typography.caption
@@ -528,19 +569,19 @@ private final class HistoryBatchCell: NSTableCellView {
         textStack.spacing = 1
         textStack.translatesAutoresizingMaskIntoConstraints = false
 
-        for v in [badgeBG, badge, textStack, countPill] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(v)
+        for childView in [badge, textStack, countPill] {
+            childView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(childView)
         }
         NSLayoutConstraint.activate([
-            badgeBG.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Spacing.sm),
-            badgeBG.centerYAnchor.constraint(equalTo: centerYAnchor),
-            badgeBG.widthAnchor.constraint(equalToConstant: 32),
-            badgeBG.heightAnchor.constraint(equalToConstant: 32),
-            badge.centerXAnchor.constraint(equalTo: badgeBG.centerXAnchor),
-            badge.centerYAnchor.constraint(equalTo: badgeBG.centerYAnchor),
+            // Same icon column as the file rows in the detail list, so master and
+            // detail read as one list rather than two.
+            badge.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Spacing.md),
+            badge.centerYAnchor.constraint(equalTo: centerYAnchor),
+            badge.widthAnchor.constraint(equalToConstant: Metrics.badgeSize),
+            badge.heightAnchor.constraint(equalToConstant: Metrics.badgeSize),
 
-            textStack.leadingAnchor.constraint(equalTo: badgeBG.trailingAnchor, constant: Spacing.sm),
+            textStack.leadingAnchor.constraint(equalTo: badge.trailingAnchor, constant: Spacing.sm),
             textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
             textStack.trailingAnchor.constraint(lessThanOrEqualTo: countPill.leadingAnchor, constant: -Spacing.sm),
 
@@ -558,21 +599,28 @@ private final class HistoryBatchCell: NSTableCellView {
         subtitle.stringValue = detail
         if restorable > 0 {
             countPill.isHidden = false
-            countPill.configure(text: "\(restorable)", color: .systemGreen)
+            countPill.configure(text: "\(restorable)",
+                                symbol: "arrow.uturn.backward",
+                                tint: .systemGreen)
             countPill.toolTip = "\(restorable) item\(restorable == 1 ? "" : "s") can be restored"
         } else {
             countPill.isHidden = true
         }
+        setAccessibilityLabel(
+            restorable > 0
+                ? "\(origin), \(detail), \(restorable) restorable"
+                : "\(origin), \(detail), nothing restorable"
+        )
     }
 }
 
-/// A single removed file: restore checkbox, file icon, name + path, status pill.
+/// A single removed file: restore checkbox, file icon, name + path, status chip.
 private final class HistoryFileCell: NSTableCellView {
     private let checkbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
     private let iconView = NSImageView()
     private let title = NSTextField(labelWithString: "")
     private let subtitle = NSTextField(labelWithString: "")
-    private let pill = PillLabel()
+    private let pill = StatusChip()
 
     var onToggle: ((Bool) -> Void)?
     var fullPath: String? { didSet { subtitle.toolTip = fullPath } }
@@ -595,9 +643,9 @@ private final class HistoryFileCell: NSTableCellView {
         textStack.spacing = 1
         textStack.translatesAutoresizingMaskIntoConstraints = false
 
-        for v in [checkbox, iconView, textStack, pill] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(v)
+        for childView in [checkbox, iconView, textStack, pill] {
+            childView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(childView)
         }
         NSLayoutConstraint.activate([
             checkbox.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Spacing.sm),
@@ -621,50 +669,19 @@ private final class HistoryFileCell: NSTableCellView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
-    func configure(icon: NSImage?, name: String, path: String, statusText: String, statusColor: NSColor, checkable: Bool, checked: Bool) {
+    func configure(icon: NSImage?, name: String, path: String, statusText: String,
+                   statusSymbol: String, statusTint: NSColor?, checkable: Bool, checked: Bool) {
         iconView.image = icon
         title.stringValue = name
         subtitle.stringValue = path
-        pill.configure(text: statusText, color: statusColor)
+        pill.configure(text: statusText, symbol: statusSymbol, tint: statusTint)
         // Only restorable files are checkable; others read as a disabled, unchecked
         // box so it's clear they can't be brought back.
         checkbox.isEnabled = checkable
         checkbox.state = (checkable && checked) ? .on : .off
+        checkbox.setAccessibilityLabel(checkable ? "Restore \(name)" : "\(name) can't be restored")
+        checkbox.setAccessibilityHelp(statusText)
     }
 
     @objc private func toggled() { onToggle?(checkbox.state == .on) }
-}
-
-/// A small rounded status capsule: tinted background + coloured text.
-private final class PillLabel: NSView {
-    private let label = NSTextField(labelWithString: "")
-
-    init() {
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
-        layer?.cornerRadius = 7
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = Typography.medium(.caption1)
-        label.alignment = .center
-        label.isBordered = false
-        label.drawsBackground = false
-        label.isEditable = false
-        label.isSelectable = false
-        addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            label.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
-        ])
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
-
-    func configure(text: String, color: NSColor) {
-        label.stringValue = text
-        label.textColor = color
-        layer?.backgroundColor = color.withAlphaComponent(0.15).cgColor
-    }
 }
