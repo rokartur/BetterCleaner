@@ -16,7 +16,7 @@ enum SettingsCatalog {
     static func makeConfiguration() -> SettingsConfiguration {
         SettingsConfiguration(
             tabs: tabs,
-            searchItems: [],
+            searchItems: searchItems,
             contentProvider: { tab, _ in
                 switch tab.id {
                 case SettingsTabID.general: return GeneralSettingsViewController()
@@ -31,6 +31,48 @@ enum SettingsCatalog {
             tabUnloadPolicy: .balanced
         )
     }
+
+    private static let searchItems: [SettingsSearchItem] = [
+        SettingsSearchItem(
+            id: "general.systemFiles", tabID: SettingsTabID.general, sectionAnchor: "scanning",
+            title: "Include system files", tabTitle: "General", sectionTitle: "Scanning", keywords: ["Library", "admin"]),
+        SettingsSearchItem(
+            id: "general.confirmDelete", tabID: SettingsTabID.general, sectionAnchor: "scanning",
+            title: "Confirm before deleting", tabTitle: "General", sectionTitle: "Scanning", keywords: ["trash", "remove"]),
+        SettingsSearchItem(
+            id: "general.stopHelpers", tabID: SettingsTabID.general, sectionAnchor: "uninstall",
+            title: "Stop helper processes", tabTitle: "General", sectionTitle: "Complete Uninstall", keywords: ["force quit", "background"]),
+        SettingsSearchItem(
+            id: "general.resetPrivacy", tabID: SettingsTabID.general, sectionAnchor: "uninstall",
+            title: "Reset privacy permissions", tabTitle: "General", sectionTitle: "Complete Uninstall", keywords: ["camera", "microphone", "TCC"]),
+        SettingsSearchItem(
+            id: "general.keychain", tabID: SettingsTabID.general, sectionAnchor: "uninstall",
+            title: "Remove Keychain items", tabTitle: "General", sectionTitle: "Complete Uninstall", keywords: ["passwords", "credentials"]),
+        SettingsSearchItem(
+            id: "general.updateInterval", tabID: SettingsTabID.general, sectionAnchor: "updates",
+            title: "Check for updates", tabTitle: "General", sectionTitle: "Updates", keywords: ["daily", "weekly", "release"]),
+        SettingsSearchItem(
+            id: "general.preReleases", tabID: SettingsTabID.general, sectionAnchor: "updates",
+            title: "Include pre-releases", tabTitle: "General", sectionTitle: "Updates", keywords: ["beta", "preview"]),
+        SettingsSearchItem(
+            id: "permissions.fullDiskAccess", tabID: SettingsTabID.permissions, sectionAnchor: "permissions",
+            title: "Full Disk Access", tabTitle: "Permissions", sectionTitle: "Permissions", keywords: ["privacy", "protected files"]),
+        SettingsSearchItem(
+            id: "permissions.admin", tabID: SettingsTabID.permissions, sectionAnchor: "permissions",
+            title: "Administrator Password", tabTitle: "Permissions", sectionTitle: "Permissions", keywords: ["sudo", "system files"]),
+        SettingsSearchItem(
+            id: "exclusions.locations", tabID: SettingsTabID.exclusions, sectionAnchor: "extra-roots",
+            title: "Extra Scan Locations", tabTitle: "Exclusions", sectionTitle: "Extra Scan Locations", keywords: ["folder", "applications"]),
+        SettingsSearchItem(
+            id: "exclusions.paths", tabID: SettingsTabID.exclusions, sectionAnchor: "exclusions",
+            title: "Scan Exclusions", tabTitle: "Exclusions", sectionTitle: "Scan Exclusions", keywords: ["ignore", "skip", "folder"]),
+        SettingsSearchItem(
+            id: "conditions.rules", tabID: SettingsTabID.conditions, sectionAnchor: "rules",
+            title: "Matching Rules", tabTitle: "Rules", sectionTitle: "Matching Rules", keywords: ["conditions", "cleanup"]),
+        SettingsSearchItem(
+            id: "about.source", tabID: SettingsTabID.about, sectionAnchor: "links",
+            title: "Source code", tabTitle: "About", sectionTitle: "About", keywords: ["GitHub", "repository"]),
+    ]
 
     private static var tabs: [SettingsTab] {
         [

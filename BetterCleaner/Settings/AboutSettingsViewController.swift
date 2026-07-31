@@ -20,14 +20,14 @@ final class AboutSettingsViewController: SettingsTabViewController {
         iconView.heightAnchor.constraint(equalToConstant: 96).isActive = true
 
         let nameLabel = NSTextField(labelWithString: AppInfo.displayName)
-        nameLabel.font = .systemFont(ofSize: 20, weight: .semibold)
+        nameLabel.font = Typography.semibold(.title3)
 
         let versionLabel = NSTextField(labelWithString: "Version \(AppInfo.version) (\(AppInfo.build))")
-        versionLabel.font = .systemFont(ofSize: 12)
+        versionLabel.font = Typography.caption
         versionLabel.textColor = .secondaryLabelColor
 
         let taglineLabel = NSTextField(labelWithString: "Find and remove the files apps leave behind.")
-        taglineLabel.font = .systemFont(ofSize: 12)
+        taglineLabel.font = Typography.caption
         taglineLabel.textColor = .secondaryLabelColor
 
         pillContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -95,67 +95,52 @@ final class AboutSettingsViewController: SettingsTabViewController {
 
         switch state {
         case .idle:
-            pill = makeActionPill(
+            pill = makeActionButton(
                 text: "Check for Updates",
                 iconName: "arrow.triangle.2.circlepath",
-                iconColor: .secondaryLabelColor,
-                prominent: nil
-            ) { [weak self] in
-                guard let self else { return }
-                Task { await self.updater.checkForUpdates(force: true) }
-            }
+                actionTag: 0
+            )
 
         case .checking:
-            pill = makeLoadingPill(text: "Checking…")
+            pill = makeLoadingView(text: "Checking…")
 
         case .upToDate:
-            pill = makeStatusPill(
+            pill = makeStatusView(
                 iconName: "checkmark.circle.fill",
                 iconColor: .systemGreen,
                 text: "You're up to date!"
             )
 
         case .available(let version, _):
-            pill = makeActionPill(
+            pill = makeActionButton(
                 text: "v\(version) — View Update",
-                iconName: "arrow.down.circle.fill",
-                iconColor: .controlAccentColor,
-                prominent: .controlAccentColor
-            ) {
-                UpdateWindowPresenter.shared.show()
-            }
+                iconName: "arrow.down.circle",
+                actionTag: 1
+            )
 
         case .downloading(let progress):
-            pill = UpdaterProgressPillView(
+            pill = UpdaterProgressView(
                 progress: progress,
-                text: "Downloading \(Int(progress * 100))%",
-                color: .controlAccentColor
+                text: "Downloading \(Int(progress * 100))%"
             )
 
         case .installing(let progress, let step):
             let text = step.isEmpty ? "Installing \(Int(progress * 100))%" : step
-            pill = UpdaterProgressPillView(progress: progress, text: text, color: .systemOrange)
+            pill = UpdaterProgressView(progress: progress, text: text)
 
         case .readyToInstall:
-            pill = makeActionPill(
+            pill = makeActionButton(
                 text: "Restart to Update",
-                iconName: "arrow.clockwise.circle.fill",
-                iconColor: .systemGreen,
-                prominent: .systemGreen
-            ) {
-                UpdateWindowPresenter.shared.show()
-            }
+                iconName: "arrow.clockwise.circle",
+                actionTag: 1
+            )
 
         case .error(let message):
-            pill = makeActionPill(
+            pill = makeActionButton(
                 text: message,
-                iconName: "exclamationmark.triangle.fill",
-                iconColor: .systemRed,
-                prominent: nil
-            ) { [weak self] in
-                guard let self else { return }
-                Task { await self.updater.checkForUpdates(force: true) }
-            }
+                iconName: "exclamationmark.triangle",
+                actionTag: 0
+            )
         }
 
         swapPill(to: pill, animated: animated)
@@ -174,15 +159,18 @@ final class AboutSettingsViewController: SettingsTabViewController {
         let previous = activePill
         activePill = pill
 
-        guard animated, view.window != nil, previous != nil else {
+        // Reduce Motion swaps the pill instantly. The crossfade only explains the
+        // state change; the new pill's text carries the meaning on its own, so
+        // dropping the motion loses nothing.
+        guard animated, view.window != nil, previous != nil, !Motion.isReduced else {
             previous?.removeFromSuperview()
             return
         }
 
         pill.alphaValue = 0
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.2
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.duration = Motion.duration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             previous?.animator().alphaValue = 0
             pill.animator().alphaValue = 1
         }, completionHandler: { [weak previous] in
@@ -190,37 +178,33 @@ final class AboutSettingsViewController: SettingsTabViewController {
         })
     }
 
-    private func makeActionPill(
-        text: String,
-        iconName: String,
-        iconColor: NSColor,
-        prominent: NSColor?,
-        action: @escaping () -> Void
-    ) -> NSView {
-        let pill = CapsulePillView()
-        let style: CapsulePillView.Style = prominent.map { .prominent($0) } ?? .subtle
-        pill.configure(
-            text: text,
-            iconName: iconName,
-            iconColor: prominent == nil ? iconColor : .white,
-            textColor: prominent == nil ? .secondaryLabelColor : .white,
-            textFont: .systemFont(ofSize: 12, weight: .medium),
-            style: style,
-            action: action
-        )
-        return pill
+    private func makeActionButton(text: String, iconName: String, actionTag: Int) -> NSButton {
+        let button = Buttons.secondary(text, target: self, action: #selector(updaterAction(_:)))
+        button.image = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)
+        button.imagePosition = .imageLeading
+        button.tag = actionTag
+        return button
     }
 
-    private func makeStatusPill(iconName: String, iconColor: NSColor, text: String) -> NSView {
+    @objc private func updaterAction(_ sender: NSButton) {
+        if sender.tag == 1 {
+            UpdateWindowPresenter.shared.show()
+        } else {
+            Task { await updater.checkForUpdates(force: true) }
+        }
+    }
+
+    private func makeStatusView(iconName: String, iconColor: NSColor, text: String) -> NSView {
         let iconView = NSImageView()
         iconView.image = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
         iconView.contentTintColor = iconColor
+        iconView.setAccessibilityElement(false)
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.setContentHuggingPriority(.required, for: .horizontal)
 
         let label = NSTextField(labelWithString: text)
-        label.font = .systemFont(ofSize: 12.5, weight: .medium)
+        label.font = Typography.medium(.subheadline)
         label.textColor = .labelColor
         label.maximumNumberOfLines = 1
 
@@ -232,7 +216,7 @@ final class AboutSettingsViewController: SettingsTabViewController {
         return stack
     }
 
-    private func makeLoadingPill(text: String) -> NSView {
+    private func makeLoadingView(text: String) -> NSView {
         let spinner = NSProgressIndicator()
         spinner.style = .spinning
         spinner.controlSize = .small
@@ -240,7 +224,7 @@ final class AboutSettingsViewController: SettingsTabViewController {
         spinner.startAnimation(nil)
 
         let label = NSTextField(labelWithString: text)
-        label.font = .systemFont(ofSize: 12.5, weight: .medium)
+        label.font = Typography.medium(.subheadline)
         label.textColor = .labelColor
 
         let stack = NSStackView(views: [spinner, label])

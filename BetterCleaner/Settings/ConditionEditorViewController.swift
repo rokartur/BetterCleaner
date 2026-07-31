@@ -28,7 +28,7 @@ final class ConditionEditorViewController: NSViewController, NSTextFieldDelegate
 
     override func loadView() {
         let titleLabel = NSTextField(labelWithString: "Matching Rule")
-        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        titleLabel.font = Typography.semibold(.title3)
 
         kindPopup.addItems(withTitles: UserCondition.Kind.allCases.map { $0.title })
         kindPopup.selectItem(at: UserCondition.Kind.allCases.firstIndex(of: condition.kind) ?? 0)
@@ -58,9 +58,15 @@ final class ConditionEditorViewController: NSViewController, NSTextFieldDelegate
         valueField.placeholderString = "value"
         valueField.delegate = self
 
-        validationLabel.font = .systemFont(ofSize: 11)
+        validationLabel.font = Typography.caption
         validationLabel.textColor = .systemRed
         validationLabel.isHidden = true
+
+        kindPopup.setAccessibilityLabel("Action")
+        targetPopup.setAccessibilityLabel("Match")
+        opPopup.setAccessibilityLabel("Condition")
+        valueField.setAccessibilityLabel("Value")
+        scopePopup.setAccessibilityLabel("Apply to")
 
         let grid = NSGridView(views: [
             [label("Action"), kindPopup],
@@ -115,6 +121,7 @@ final class ConditionEditorViewController: NSViewController, NSTextFieldDelegate
 
     private func label(_ text: String) -> NSTextField {
         let field = NSTextField(labelWithString: text)
+        field.font = Typography.body
         field.textColor = .secondaryLabelColor
         return field
     }
