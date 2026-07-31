@@ -10,6 +10,7 @@ final class PackageListViewController: NSViewController, NSTableViewDataSource, 
     private var filtered: [PackageReceipt] = []
     private var hasScanned = false
     private var filterText = ""
+    private var waitingForFullDiskAccess = false
 
     private let searchField = NSSearchField()
     private let refreshButton = NSButton()
@@ -20,7 +21,10 @@ final class PackageListViewController: NSViewController, NSTableViewDataSource, 
     private static let cellID = NSUserInterfaceItemIdentifier("PackageRow")
     /// Reused per-row instead of allocating a DateFormatter in `viewFor`.
     private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter(); f.dateStyle = .short; f.timeStyle = .none; return f
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .none
+        return formatter
     }()
 
     override func loadView() {
@@ -43,6 +47,8 @@ final class PackageListViewController: NSViewController, NSTableViewDataSource, 
         refreshButton.imagePosition = .imageOnly
         refreshButton.setButtonType(.momentaryPushIn)
         refreshButton.toolTip = "Re-read package receipts"
+        refreshButton.setAccessibilityLabel("Refresh packages")
+        refreshButton.setAccessibilityHelp("Re-read package receipts")
         refreshButton.target = self
         refreshButton.action = #selector(refresh)
         refreshButton.setContentHuggingPriority(.required, for: .horizontal)
@@ -102,6 +108,24 @@ final class PackageListViewController: NSViewController, NSTableViewDataSource, 
         view = container
     }
 
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidBecomeActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func applicationDidBecomeActive() {
+        guard waitingForFullDiskAccess, FullDiskAccess.refresh() else { return }
+        waitingForFullDiskAccess = false
+        rescan()
+    }
+
     func startIfNeeded() {
         guard !hasScanned else { return }
         hasScanned = true
@@ -112,9 +136,14 @@ final class PackageListViewController: NSViewController, NSTableViewDataSource, 
 
     func rescan() {
         guard PackageScanner.isAvailable() else {
-            all = []; applyFilter()
+            showUnavailable()
             return
         }
+        guard FullDiskAccess.refresh() else {
+            showFullDiskAccessRequired()
+            return
+        }
+        waitingForFullDiskAccess = false
         loadingView.startIndeterminate("Reading package receipts…")
         emptyState.isHidden = true
         onSelect?(nil)
@@ -146,11 +175,48 @@ final class PackageListViewController: NSViewController, NSTableViewDataSource, 
         }
         emptyState.isHidden = !filtered.isEmpty
         if filtered.isEmpty {
-            emptyState.configure(symbol: all.isEmpty ? "lock.shield" : "magnifyingglass",
-                                 title: all.isEmpty ? "No package receipts found" : "No matches",
-                                 message: all.isEmpty ? "BetterCleaner needs Full Disk Access to read package receipts." : "")
+            emptyState.configure(
+                symbol: all.isEmpty ? "shippingbox" : "magnifyingglass",
+                title: all.isEmpty ? "No Package Receipts" : "No Matches",
+                message: all.isEmpty ? "No installer receipts are available on this Mac." : ""
+            )
         }
         tableView.reloadData()
+    }
+
+    private func showFullDiskAccessRequired() {
+        waitingForFullDiskAccess = true
+        loadingView.stop()
+        all = []
+        filtered = []
+        tableView.reloadData()
+        onSelect?(nil)
+        emptyState.isHidden = false
+        emptyState.configure(
+            symbol: "lock.shield",
+            title: "Full Disk Access Required",
+            message: "Grant access to read package receipts and the files they installed.",
+            actionTitle: "Open Privacy Settings",
+            action: {
+                FullDiskAccess.provokeRegistration()
+                FullDiskAccess.openSettings()
+            }
+        )
+    }
+
+    private func showUnavailable() {
+        waitingForFullDiskAccess = false
+        loadingView.stop()
+        all = []
+        filtered = []
+        tableView.reloadData()
+        onSelect?(nil)
+        emptyState.isHidden = false
+        emptyState.configure(
+            symbol: "exclamationmark.triangle",
+            title: "Package Receipts Unavailable",
+            message: "The macOS package receipt service couldn't be found."
+        )
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int { filtered.count }
@@ -181,7 +247,10 @@ private final class PackageRowCell: NSTableCellView {
     init() {
         super.init(frame: .zero)
         identifier = NSUserInterfaceItemIdentifier("PackageRow")
-        for v in [icon, title, subtitle] { v.translatesAutoresizingMaskIntoConstraints = false; addSubview(v) }
+        for childView in [icon, title, subtitle] {
+            childView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(childView)
+        }
         icon.image = NSImage(systemSymbolName: "shippingbox", accessibilityDescription: nil)
         icon.contentTintColor = .secondaryLabelColor
         title.font = Typography.body

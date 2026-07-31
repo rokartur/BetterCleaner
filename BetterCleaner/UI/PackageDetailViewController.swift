@@ -20,9 +20,12 @@ final class PackageDetailViewController: NSViewController, NSTableViewDataSource
     private let statusLabel = NSTextField(labelWithString: "")
     private lazy var forgetButton = Buttons.secondary("Forget Receipt", target: self, action: #selector(forget))
     private lazy var uninstallButton = Buttons.destructive("Uninstall", target: self, action: #selector(uninstall))
+    private lazy var actionBar = ActionBarView(
+        leading: [selectAllButton, statusLabel],
+        trailing: [forgetButton, uninstallButton]
+    )
 
     override func loadView() {
-        if let s = NavCatalog.section(id: "pkg") { header.setBadge(symbol: s.icon) }
         header.translatesAutoresizingMaskIntoConstraints = false
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("file"))
@@ -52,17 +55,18 @@ final class PackageDetailViewController: NSViewController, NSTableViewDataSource
 
         // Empty state self-styles.
 
-        // Glass action bar. Uninstall is destructive (red, Return); Forget only
-        // removes the install record, so it stays a neutral secondary.
+        // Sticky action bar. Uninstall is destructive and deliberately has no
+        // Return shortcut; Forget only removes the install record.
         statusLabel.font = Typography.subheadline
         statusLabel.textColor = .secondaryLabelColor
         forgetButton.toolTip = "Remove the install record only — files stay on disk."
         uninstallButton.toolTip = "Move the selected installed files to the Trash, then forget the receipt."
-        let footer = ActionBarView(leading: [selectAllButton, statusLabel], trailing: [forgetButton, uninstallButton])
-        footer.translatesAutoresizingMaskIntoConstraints = false
+        actionBar.translatesAutoresizingMaskIntoConstraints = false
 
         let root = NSView()
-        for v in [header, scrollView, footer, emptyState, loadingView] { root.addSubview(v) }
+        for childView in [header, scrollView, actionBar, emptyState, loadingView] {
+            root.addSubview(childView)
+        }
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: root.topAnchor, constant: Spacing.md),
             header.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
@@ -70,10 +74,10 @@ final class PackageDetailViewController: NSViewController, NSTableViewDataSource
             scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Spacing.md),
             scrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
             scrollView.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
-            footer.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: Spacing.sm),
-            footer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
-            footer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
-            footer.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -Spacing.md),
+            actionBar.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: Spacing.sm),
+            actionBar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
+            actionBar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
+            actionBar.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -Spacing.md),
             emptyState.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
             emptyState.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
             emptyState.topAnchor.constraint(equalTo: scrollView.topAnchor),
@@ -95,6 +99,7 @@ final class PackageDetailViewController: NSViewController, NSTableViewDataSource
 
         items = []
         tableView.reloadData()
+        header.isHidden = false
         header.title = receipt.id
         header.summary = metadataLine(receipt)
         header.detail = "Receipt: /var/db/receipts/\(receipt.id).plist"
@@ -127,12 +132,18 @@ final class PackageDetailViewController: NSViewController, NSTableViewDataSource
         items = []
         loadingView.stop()
         tableView.reloadData()
+        // The toolbar title names the page and the empty state below carries the
+        // hint — an in-content "Packages" header would say it a third time.
         header.title = ""
         header.summary = ""
         header.detail = ""
+        header.isHidden = false
+        // A quiet hint, not a second hero: when the receipt list is itself showing
+        // a permission gate, two competing centered panels read as a broken screen.
         emptyState.configure(symbol: "shippingbox",
                              title: "Select a package",
-                             message: "Choose a package to see the files it installed.")
+                             message: "Choose a package to see the files it installed.",
+                             tone: .hint)
         emptyState.isHidden = false
         updateFooter()
     }
@@ -141,8 +152,10 @@ final class PackageDetailViewController: NSViewController, NSTableViewDataSource
         var parts: [String] = []
         if !receipt.version.isEmpty { parts.append("v\(receipt.version)") }
         if let date = receipt.installDate {
-            let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .short
-            parts.append("installed \(f.string(from: date))")
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            parts.append("installed \(formatter.string(from: date))")
         }
         if !receipt.installLocation.isEmpty, receipt.installLocation != "/" { parts.append(receipt.installLocation) }
         return parts.joined(separator: " · ")
@@ -153,6 +166,7 @@ final class PackageDetailViewController: NSViewController, NSTableViewDataSource
     private var selectedItems: [FileItem] { items.filter { $0.isSelected } }
 
     private func updateFooter() {
+        actionBar.isHidden = receipt == nil
         let selected = selectedItems
         let bytes = selected.reduce(Int64(0)) { $0 + $1.size }
         statusLabel.stringValue = items.isEmpty ? "" : (selected.isEmpty ? "No files selected" : "\(selected.count) of \(items.count) · \(FileSize.string(bytes))")
@@ -171,7 +185,7 @@ final class PackageDetailViewController: NSViewController, NSTableViewDataSource
     }
 
     @objc private func revealClickedRow() {
-        let row = tableView.clickedRow
+        let row = tableView.clickedRow >= 0 ? tableView.clickedRow : tableView.selectedRow
         guard row >= 0, row < items.count else { return }
         let url = items[row].url
         guard FileManager.default.fileExists(atPath: url.path) else { return }
@@ -199,8 +213,7 @@ final class PackageDetailViewController: NSViewController, NSTableViewDataSource
         let alert = NSAlert()
         alert.messageText = "Forget “\(receipt.id)”?"
         alert.informativeText = "Removes the install record only — files already on disk stay."
-        alert.addButton(withTitle: "Forget")
-        alert.addButton(withTitle: "Cancel")
+        Buttons.addDestructiveConfirmation("Forget", to: alert)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
         let id = receipt.id
@@ -226,8 +239,7 @@ final class PackageDetailViewController: NSViewController, NSTableViewDataSource
             alert.informativeText = selected.isEmpty
                 ? "No files selected — this only forgets the install record."
                 : "Move \(selected.count) file\(selected.count == 1 ? "" : "s") · \(FileSize.string(bytes)) to the Trash (restorable), then forget the receipt. System files require an admin password."
-            alert.addButton(withTitle: "Uninstall")
-            alert.addButton(withTitle: "Cancel")
+            Buttons.addDestructiveConfirmation("Uninstall", to: alert)
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
 
@@ -274,14 +286,14 @@ final class PackageDetailViewController: NSViewController, NSTableViewDataSource
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let cell = tableView.makeView(withIdentifier: FileCell.identifier, owner: self) as? FileCell ?? {
-            let c = FileCell()
-            c.identifier = FileCell.identifier
-            return c
+            let newCell = FileCell()
+            newCell.identifier = FileCell.identifier
+            return newCell
         }()
         cell.configure(item: items[row])
         cell.onToggle = { [weak self] in self?.updateFooter() }
         return cell
     }
 
-    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { true }
 }
