@@ -31,6 +31,12 @@ final class MainSplitViewController: NSSplitViewController {
     /// Packages page halves — list lives in the shared sidebar, detail in content.
     private lazy var packageListVC = PackageListViewController()
     private lazy var packageDetailVC = PackageDetailViewController()
+    /// Homebrew page halves — list (Installed/Services/Taps) in the shared sidebar,
+    /// detail in content. Coordinates search & maintenance sheets.
+    private lazy var homebrewListVC = HomebrewListViewController()
+    private lazy var homebrewDetailVC = HomebrewDetailViewController()
+    private lazy var homebrewAutomationVC = HomebrewAutomationViewController()
+    private lazy var homebrewMaintenanceVC = HomebrewMaintenanceViewController()
     private lazy var developmentVC = DevelopmentViewController()
     private lazy var deleteHistoryVC = DeleteHistoryViewController()
 
@@ -42,12 +48,22 @@ final class MainSplitViewController: NSSplitViewController {
     private var currentScanToken: ScanToken?
 
     private var reclaimable: [String: Int64] = [:]
+    /// The page currently shown. Tracked so the single Homebrew sidebar row can
+    /// return to whichever category the user last had open.
+    private var currentPageID = "applications"
 
     /// Every selectable page other than the default Applications page.
-    private static let pageIDs: Set<String> = ["junk", "orphaned", "pkg", "devenv", "history"]
+    private static let pageIDs: Set<String> = ["junk", "orphaned", "pkg", "brew.installed", "brew.available", "brew.services", "brew.taps", "brew.autoupdate", "brew.maintenance", "devenv", "history"]
     /// Pages that show the collapsible left sidebar (a master list in it). Every
     /// other page collapses the sidebar and takes the content area full-width.
-    private static let sidebarPageIDs: Set<String> = ["applications", "pkg"]
+    private static let sidebarPageIDs: Set<String> = ["applications", "pkg", "brew.installed", "brew.available", "brew.services", "brew.taps"]
+    /// The four Homebrew categories, which share a single sidebar row and switch
+    /// inside the list column.
+    private static let brewCategoryPageIDs: Set<String> = ["brew.installed", "brew.available", "brew.services", "brew.taps"]
+    private let hadSavedSplitLayout = UserDefaults.standard.object(
+        forKey: "NSSplitView Subview Frames BetterCleanerMainSplit"
+    ) != nil
+    private var didApplyInitialSplitLayout = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -55,14 +71,14 @@ final class MainSplitViewController: NSSplitViewController {
         // Remember the user's split widths across launches.
         splitView.autosaveName = "BetterCleanerMainSplit"
 
-        // Column 1 — the navigation sidebar (grouped page tabs + Settings footer). A
+        // Column 1 — the navigation sidebar (grouped page tabs). A
         // real sidebar item → automatic vibrancy + the traffic lights float over it
         // (System Settings look). Always visible: it's the only navigation, so it
         // can't be collapsed.
         navItem = NSSplitViewItem(sidebarWithViewController: navVC)
-        // 220 floor so a page label + its reclaimable-size badge both fit without
-        // truncating the title (e.g. "System Junk   30.64 GB").
-        navItem.minimumThickness = 220
+        // Fits the required 880pt minimum while preserving room for a page label
+        // and its reclaimable-size badge at the normal 1040pt window size.
+        navItem.minimumThickness = 200
         navItem.maximumThickness = 280
         navItem.canCollapse = false
         addSplitViewItem(navItem)
@@ -71,19 +87,25 @@ final class MainSplitViewController: NSSplitViewController {
         // column, shown only on the Applications + Packages pages and collapsed
         // everywhere else.
         contentListItem = NSSplitViewItem(contentListWithViewController: sidebarContainer)
-        contentListItem.minimumThickness = 240
-        contentListItem.maximumThickness = 420
-        contentListItem.canCollapse = true
+        contentListItem.minimumThickness = 280
+        contentListItem.maximumThickness = 560
+        // The master list is the only way to pick an app/package on its pages, so
+        // the user must not be able to drag it closed. Pages without a master list
+        // still collapse it programmatically via `isCollapsed`, which ignores this.
+        contentListItem.canCollapse = false
         addSplitViewItem(contentListItem)
 
-        // Column 3 — the detail content, swapped per page.
+        // Column 3 — the detail content, swapped per page. Its minimum is the
+        // remainder of the 880pt window minimum (Metrics.minWindow) after the
+        // sidebar (200) and master-list (280) minimums and the split dividers.
         let contentItem = NSSplitViewItem(viewController: container)
-        contentItem.minimumThickness = 420
+        contentItem.minimumThickness = 391
         addSplitViewItem(contentItem)
 
         wireReclaimable()
         wireApplications()
         wirePackages()
+        wireHomebrew()
 
         // Wire the nav's callbacks only after every column exists, so the first
         // programmatic page set can't re-enter `select(_:)` before the other split
@@ -91,6 +113,26 @@ final class MainSplitViewController: NSSplitViewController {
         navVC.onSelect = { [weak self] id in self?.select(id) }
         select("applications")
         refreshApps()
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        // The first select(_:) runs before the window exists; reapply its title.
+        view.window?.title = Self.windowTitle(for: currentPageID)
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        guard !hadSavedSplitLayout,
+              !didApplyInitialSplitLayout,
+              splitView.bounds.width >= Metrics.defaultWindow.width
+        else { return }
+        didApplyInitialSplitLayout = true
+        splitView.setPosition(Metrics.sidebarDefaultWidth, ofDividerAt: 0)
+        splitView.setPosition(
+            Metrics.sidebarDefaultWidth + splitView.dividerThickness + Metrics.listColumnDefaultWidth,
+            ofDividerAt: 1
+        )
     }
 
     // MARK: - Applications orchestration
@@ -106,9 +148,14 @@ final class MainSplitViewController: NSSplitViewController {
             // Trash) clear the pane instead of re-scanning a trashed bundle.
             if let app = self.currentApp, FileManager.default.fileExists(atPath: app.url.path) {
                 self.scan(app: app)
-            } else {
+            } else if let app = self.currentApp {
                 self.currentApp = nil
                 self.applicationsFileListVC.uninstallContext = nil
+                self.applicationsFileListVC.showCompletion(
+                    title: "\(app.name) Uninstalled",
+                    message: "The app and selected files were moved to the Trash. Restore them from Delete History."
+                )
+            } else {
                 self.applicationsFileListVC.showPlaceholder("Select an app to see the files it left behind.")
             }
             self.refreshApps()
@@ -120,6 +167,46 @@ final class MainSplitViewController: NSSplitViewController {
     private func wirePackages() {
         packageListVC.onSelect = { [weak self] receipt in self?.packageDetailVC.show(receipt) }
         packageDetailVC.onChanged = { [weak self] in self?.packageListVC.rescan() }
+    }
+
+    // MARK: - Homebrew orchestration
+
+    private func wireHomebrew() {
+        homebrewListVC.onSelect = { [weak self] selection in self?.homebrewDetailVC.show(selection) }
+        homebrewDetailVC.onChanged = { [weak self] in self?.homebrewListVC.rescan() }
+        homebrewMaintenanceVC.onChanged = { [weak self] in self?.homebrewListVC.rescan() }
+        homebrewListVC.onMaintenanceRequested = { [weak self] anchor in self?.presentHomebrewMaintenance(anchor) }
+        // The column's own switcher is the source of truth for which category is
+        // shown; mirror it into `currentPageID` so a later `select(_:)` for the
+        // Homebrew row restores the category the user last looked at.
+        homebrewListVC.onCategoryChanged = { [weak self] category in
+            self?.currentPageID = Self.pageID(for: category)
+        }
+    }
+
+    /// The toolbar's window title mirrors the sidebar: one "Homebrew" row, so all
+    /// four categories share it (the column's switcher already names the category).
+    private static func windowTitle(for id: String) -> String {
+        if brewCategoryPageIDs.contains(id) { return "Homebrew" }
+        return NavCatalog.section(id: id)?.title ?? "BetterCleaner"
+    }
+
+    private static func pageID(for category: HomebrewCategory) -> String {
+        switch category {
+        case .installed: return "brew.installed"
+        case .available: return "brew.available"
+        case .services:  return "brew.services"
+        case .taps:      return "brew.taps"
+        }
+    }
+
+    private func presentHomebrewMaintenance(_ anchor: NSButton) {
+        HomebrewMaintenanceMenu.present(
+            from: anchor,
+            presenter: self,
+            onOpenPage: { [weak self] id in self?.select(id) },
+            onChanged: { [weak self] in self?.homebrewListVC.rescan() }
+        )
     }
 
     func refreshApps() {
@@ -173,7 +260,11 @@ final class MainSplitViewController: NSSplitViewController {
         // Per-app uninstall: the destructive button runs the full AppRemover flow
         // (quit/unload/TCC/receipts/Keychain) and the header shows the app's icon.
         applicationsFileListVC.uninstallContext = app
-        applicationsFileListVC.showLoading("Scanning \(app.name)…", determinate: true)
+        guard FullDiskAccess.refresh() else {
+            applicationsFileListVC.showFullDiskAccessRequired()
+            return
+        }
+        applicationsFileListVC.showLoading("Scanning \(app.name)…", title: app.name, determinate: true)
 
         scanGeneration += 1
         let generation = scanGeneration
@@ -188,7 +279,15 @@ final class MainSplitViewController: NSSplitViewController {
         let excluded = ScanExclusions.set(from: Preferences.shared.orphanExclusionURLs)
         let conditions = Preferences.shared.enabledConditions
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let items = LeftoverScanner.scan(app: app, sensitivity: sensitivity, includeSystem: includeSystem, otherApps: otherApps, excluded: excluded, conditions: conditions, isCancelled: { token.isCancelled }) { fraction in
+            let items = LeftoverScanner.scan(
+                app: app,
+                sensitivity: sensitivity,
+                includeSystem: includeSystem,
+                otherApps: otherApps,
+                excluded: excluded,
+                conditions: conditions,
+                isCancelled: { token.isCancelled }
+            ) { fraction in
                 DispatchQueue.main.async {
                     guard let self, generation == self.scanGeneration else { return }
                     self.applicationsFileListVC.updateProgress(fraction)
@@ -199,18 +298,25 @@ final class MainSplitViewController: NSSplitViewController {
             DispatchQueue.main.async {
                 // Drop stale results if a newer scan started meanwhile.
                 guard let self, generation == self.scanGeneration else { return }
-                self.applicationsFileListVC.showResults(sections, title: app.name, subtitle: Self.heroSubtitle(app: app, count: items.count, bytes: total))
+                self.applicationsFileListVC.showResults(
+                    sections,
+                    title: app.name,
+                    subtitle: Self.heroSubtitle(app: app, count: items.count),
+                    metric: FileSize.string(total),
+                    detail: app.bundleID ?? ""
+                )
             }
         }
     }
 
-    /// "bundleID · vVersion · N items · size" — the hero header's summary line.
-    private static func heroSubtitle(app: InstalledApp, count: Int, bytes: Int64) -> String {
+    /// "vVersion · N items · " — the hero header's summary lead-in. The size is
+    /// passed separately so it can carry the emphasis, and the bundle id drops to
+    /// the footnote line: it identifies the app but is never what the user decides on.
+    private static func heroSubtitle(app: InstalledApp, count: Int) -> String {
         var parts: [String] = []
-        if let b = app.bundleID, !b.isEmpty { parts.append(b) }
-        if let v = app.shortVersion, !v.isEmpty { parts.append("v\(v)") }
-        parts.append("\(count) item\(count == 1 ? "" : "s") · \(FileSize.string(bytes))")
-        return parts.joined(separator: " · ")
+        if let version = app.shortVersion, !version.isEmpty { parts.append("v\(version)") }
+        parts.append("\(count) item\(count == 1 ? "" : "s")")
+        return parts.joined(separator: " · ") + " · "
     }
 
     // MARK: - Reclaimable totals (toolbar page menu sizes + running total)
@@ -248,8 +354,17 @@ final class MainSplitViewController: NSSplitViewController {
     // MARK: - Page routing
 
     func select(_ id: String) {
-        let resolved = Self.pageIDs.contains(id) ? id : "applications"
-        navVC.selectRow(resolved)
+        var resolved = Self.pageIDs.contains(id) ? id : "applications"
+        // The Homebrew sidebar row reopens the category the user last used, so
+        // switching away and back doesn't silently reset them to Installed.
+        if resolved == "brew.installed", Self.brewCategoryPageIDs.contains(currentPageID) {
+            resolved = currentPageID
+        }
+        currentPageID = resolved
+        view.window?.title = Self.windowTitle(for: resolved)
+        // Every brew category shares one sidebar row, so highlight that row for all
+        // of them instead of clearing the selection on a category the list owns.
+        navVC.selectRow(Self.brewCategoryPageIDs.contains(resolved) ? "brew.installed" : resolved)
         setContentListCollapsed(!Self.sidebarPageIDs.contains(resolved))
         switch resolved {
         case "junk":
@@ -260,6 +375,17 @@ final class MainSplitViewController: NSSplitViewController {
             sidebarContainer.setContent(packageListVC)
             container.setContent(packageDetailVC)
             packageListVC.startIfNeeded()
+        case "brew.installed", "brew.available", "brew.services", "brew.taps":
+            let category: HomebrewCategory = resolved == "brew.services" ? .services
+                : (resolved == "brew.taps" ? .taps
+                   : (resolved == "brew.available" ? .available : .installed))
+            sidebarContainer.setContent(homebrewListVC)
+            container.setContent(homebrewDetailVC)
+            homebrewListVC.setCategory(category)
+        case "brew.autoupdate":
+            container.setContent(homebrewAutomationVC)
+        case "brew.maintenance":
+            container.setContent(homebrewMaintenanceVC); homebrewMaintenanceVC.startIfNeeded()
         case "devenv":
             container.setContent(developmentVC); developmentVC.startIfNeeded()
         case "history":
@@ -268,7 +394,11 @@ final class MainSplitViewController: NSSplitViewController {
             sidebarContainer.setContent(appListVC)
             container.setContent(applicationsFileListVC)
             if currentApp == nil {
-                applicationsFileListVC.showPlaceholder("Select an app to see the files it left behind.")
+                if FullDiskAccess.refresh() {
+                    applicationsFileListVC.showPlaceholder("Select an app to see the files it left behind.")
+                } else {
+                    applicationsFileListVC.showFullDiskAccessRequired()
+                }
             }
         }
     }

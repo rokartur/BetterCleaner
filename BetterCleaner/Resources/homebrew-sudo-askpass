@@ -1,0 +1,5 @@
+#!/bin/sh
+exec /usr/bin/osascript \
+  -e 'set response to display dialog "Homebrew needs administrator privileges to finish this operation." default answer "" with hidden answer buttons {"Cancel", "Continue"} default button "Continue" cancel button "Cancel" with title "BetterCleaner" with icon caution giving up after 120' \
+  -e 'if gave up of response then error number -128' \
+  -e 'text returned of response'

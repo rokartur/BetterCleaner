@@ -17,7 +17,7 @@ final class PermissionsSettingsViewController: SettingsTabViewController {
 
         statusIcon.symbolConfiguration = .init(pointSize: 11, weight: .semibold)
         statusIcon.setContentHuggingPriority(.required, for: .horizontal)
-        statusLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        statusLabel.font = Typography.semibold(.caption1)
         fdaButton.bezelStyle = .rounded
         fdaButton.target = self
         fdaButton.action = #selector(openFDASettings)

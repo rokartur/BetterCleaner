@@ -24,9 +24,9 @@ final class FileCell: NSTableCellView {
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
     private func setup() {
-        for v in [checkbox, iconView, nameField, pathField, sizeField, safetyDot, lockView] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(v)
+        for child in [checkbox, iconView, nameField, pathField, sizeField, safetyDot, lockView] {
+            child.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(child)
         }
         checkbox.target = self
         checkbox.action = #selector(toggled)
@@ -73,21 +73,29 @@ final class FileCell: NSTableCellView {
 
             lockView.trailingAnchor.constraint(equalTo: sizeField.leadingAnchor, constant: -Spacing.sm),
             lockView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            // Reserve the slot whether or not this row is system-domain, so the
+            // dot column doesn't step sideways when a lock shows up.
+            lockView.widthAnchor.constraint(equalToConstant: Metrics.lockSlotWidth),
 
             sizeField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Spacing.md),
             sizeField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            sizeField.widthAnchor.constraint(equalToConstant: Metrics.sizeColumnWidth),
         ])
     }
 
     func configure(item: FileItem) {
         self.item = item
         checkbox.state = item.isSelected ? .on : .off
+        checkbox.setAccessibilityLabel("Select \(item.displayName)")
         iconView.image = IconCache.icon(forPath: item.path)
         // The name reads as a link: hover underlines it, click reveals the file
         // (selected) in Finder. The path below stays a plain caption.
         nameField.url = item.url
         nameField.stringValue = item.displayName
-        pathField.stringValue = item.url.deletingLastPathComponent().path
+        // "~/Library/Caches" instead of "/Users/artur/Library/Caches": shorter, and
+        // the home prefix repeated on every row carries no information.
+        pathField.stringValue = (item.url.deletingLastPathComponent().path as NSString)
+            .abbreviatingWithTildeInPath
         // "≈" signals the size is a lower bound (part of the tree was unreadable).
         sizeField.stringValue = (item.sizeIsApproximate ? "≈ " : "") + FileSize.string(item.size)
         lockView.isHidden = item.domain != .system
@@ -99,11 +107,13 @@ final class FileCell: NSTableCellView {
     /// explains *why*, naming the category so orphan grading reads inline.
     private func applySafety(_ item: FileItem) {
         if item.isAutoSelectable {
+            safetyDot.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Safe to remove")
             safetyDot.contentTintColor = .systemGreen
             safetyDot.toolTip = item.domain == .system
                 ? "Safe to remove — needs an admin password."
                 : "Safe to remove — \(item.category) is recreated automatically and nothing depends on it."
         } else {
+            safetyDot.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Review before removing")
             safetyDot.contentTintColor = .systemOrange
             safetyDot.toolTip = "Review before removing — BetterCleaner isn't certain this belongs to removed software (\(item.category)). Not pre-selected."
         }
@@ -148,9 +158,9 @@ final class GroupCellView: NSTableCellView {
 
     init() {
         super.init(frame: .zero)
-        for v in [checkbox, iconView, titleField, safetyDot, detailField] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(v)
+        for child in [checkbox, iconView, titleField, safetyDot, detailField] {
+            child.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(child)
         }
         checkbox.target = self
         checkbox.action = #selector(toggled)
@@ -177,10 +187,13 @@ final class GroupCellView: NSTableCellView {
             titleField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: Spacing.sm),
             titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
             titleField.trailingAnchor.constraint(lessThanOrEqualTo: safetyDot.leadingAnchor, constant: -Spacing.sm),
-            safetyDot.trailingAnchor.constraint(equalTo: detailField.leadingAnchor, constant: -Spacing.sm),
+            // Same columns as the file rows below, so a collapsed group's dot and
+            // size land exactly on the columns of the rows it contains.
+            safetyDot.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.safetyDotInset),
             safetyDot.centerYAnchor.constraint(equalTo: centerYAnchor),
             detailField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Spacing.md),
             detailField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            detailField.widthAnchor.constraint(equalToConstant: Metrics.sizeColumnWidth),
         ])
     }
 
@@ -190,6 +203,7 @@ final class GroupCellView: NSTableCellView {
         titleField.stringValue = title
         detailField.stringValue = detail
         checkbox.state = checked ? .on : .off
+        checkbox.setAccessibilityLabel("Select \(title)")
         configureSafetyDot(safetyDot, allSafe: allSafe)
     }
 
@@ -204,21 +218,26 @@ final class SectionCellView: NSTableCellView {
     private let checkbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
     private let label = NSTextField(labelWithString: "")
     private let safetyDot = NSImageView()
+    private let sizeField = NSTextField(labelWithString: "")
 
     /// Fired with the checkbox's new state (`true` = select the category).
     var onToggle: ((Bool) -> Void)?
 
     init() {
         super.init(frame: .zero)
-        for v in [checkbox, label, safetyDot] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(v)
+        for child in [checkbox, label, safetyDot, sizeField] {
+            child.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(child)
         }
         checkbox.target = self
         checkbox.action = #selector(toggled)
         checkbox.allowsMixedState = false
         label.font = Typography.semibold(.subheadline)
         label.textColor = .secondaryLabelColor
+        label.lineBreakMode = .byTruncatingTail
+        sizeField.font = Typography.monospacedDigit(.subheadline, weight: .semibold)
+        sizeField.textColor = .secondaryLabelColor
+        sizeField.alignment = .right
         safetyDot.symbolConfiguration = .init(pointSize: 11, weight: .semibold)
         safetyDot.setContentHuggingPriority(.required, for: .horizontal)
         NSLayoutConstraint.activate([
@@ -227,8 +246,13 @@ final class SectionCellView: NSTableCellView {
             label.leadingAnchor.constraint(equalTo: checkbox.trailingAnchor, constant: Spacing.sm),
             label.trailingAnchor.constraint(lessThanOrEqualTo: safetyDot.leadingAnchor, constant: -Spacing.sm),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            safetyDot.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Spacing.md),
+            // Sit in the same dot and size columns as the file rows below, rather
+            // than hard against the pane edge — the columns must read as one line.
+            safetyDot.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.safetyDotInset),
             safetyDot.centerYAnchor.constraint(equalTo: centerYAnchor),
+            sizeField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Spacing.md),
+            sizeField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            sizeField.widthAnchor.constraint(equalToConstant: Metrics.sizeColumnWidth),
         ])
     }
 
@@ -238,10 +262,16 @@ final class SectionCellView: NSTableCellView {
     /// one auto-selectable item (off for review-only groups like Spotlight, so
     /// large user data can't be swept in with one click). `allSafe` drives the
     /// aggregate safety dot.
-    func configure(title: String, detail: String, checked: Bool, enabled: Bool, allSafe: Bool) {
+    /// - Parameters:
+    ///   - detail: the category's item count, shown beside the name.
+    ///   - size: the category total, which sits alone in the shared size column.
+    func configure(title: String, detail: String, size: String, checked: Bool, enabled: Bool, allSafe: Bool) {
         label.stringValue = "\(title.uppercased())   ·   \(detail)"
+        sizeField.stringValue = size
         checkbox.state = checked ? .on : .off
         checkbox.isEnabled = enabled
+        checkbox.setAccessibilityLabel("Select \(title)")
+        setAccessibilityLabel("\(title), \(detail), \(size)")
         configureSafetyDot(safetyDot, allSafe: allSafe)
     }
 

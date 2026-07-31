@@ -1,35 +1,42 @@
 import AppKit
 
-/// Factory helpers so every screen styles its actions consistently:
-/// a prominent accent **primary**, a red **destructive** (Liquid Glass renders
-/// `hasDestructiveAction` in red on macOS 26), and a plain **secondary**.
+/// Factory helpers for consistent native AppKit actions.
 @MainActor
 enum Buttons {
     /// Accent-tinted default action (e.g. "Recheck", confirmations). Bound to
     /// Return by default.
     static func primary(_ title: String, target: AnyObject?, action: Selector, key: String = "\r") -> NSButton {
-        let b = NSButton(title: title, target: target, action: action)
-        b.bezelStyle = .rounded
-        b.keyEquivalent = key
-        b.bezelColor = .controlAccentColor
-        b.contentTintColor = .white
-        return b
+        let button = NSButton(title: title, target: target, action: action)
+        button.bezelStyle = .rounded
+        button.keyEquivalent = key
+        return button
     }
 
-    /// Red destructive action (Move to Trash, Uninstall, Forget). Defaults to the
-    /// Return key since it's the primary action on its screen.
-    static func destructive(_ title: String, target: AnyObject?, action: Selector, key: String = "\r") -> NSButton {
-        let b = NSButton(title: title, target: target, action: action)
-        b.bezelStyle = .rounded
-        b.keyEquivalent = key
-        b.hasDestructiveAction = true
-        return b
+    /// Red destructive action (Move to Trash, Uninstall, Forget). It deliberately
+    /// has no Return shortcut; confirmation dialogs own the safe default action.
+    static func destructive(_ title: String, target: AnyObject?, action: Selector, key: String = "") -> NSButton {
+        let button = NSButton(title: title, target: target, action: action)
+        button.bezelStyle = .rounded
+        button.keyEquivalent = key
+        button.hasDestructiveAction = true
+        return button
     }
 
     /// Neutral bordered action (Refresh, Select All, Prune Languages).
     static func secondary(_ title: String, target: AnyObject?, action: Selector) -> NSButton {
-        let b = NSButton(title: title, target: target, action: action)
-        b.bezelStyle = .rounded
-        return b
+        let button = NSButton(title: title, target: target, action: action)
+        button.bezelStyle = .rounded
+        return button
+    }
+
+    /// Adds a destructive alert action while making Cancel the Return-key default.
+    /// Destructive confirmations must require an explicit click or keyboard choice.
+    static func addDestructiveConfirmation(_ title: String, to alert: NSAlert) {
+        let destructive = alert.addButton(withTitle: title)
+        destructive.hasDestructiveAction = true
+        destructive.keyEquivalent = ""
+
+        let cancel = alert.addButton(withTitle: "Cancel")
+        cancel.keyEquivalent = "\r"
     }
 }

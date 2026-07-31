@@ -63,7 +63,7 @@ final class ConditionsSettingsViewController: SettingsTabViewController, NSTable
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let footer = NSStackView(views: [addButton, editButton, removeButton, spacer])
         footer.orientation = .horizontal
-        footer.spacing = 8
+        footer.spacing = Spacing.sm
         footer.translatesAutoresizingMaskIntoConstraints = false
 
         let container = NSView()
@@ -75,7 +75,7 @@ final class ConditionsSettingsViewController: SettingsTabViewController, NSTable
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.heightAnchor.constraint(equalToConstant: 150),
-            footer.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 6),
+            footer.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: Spacing.sm),
             footer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             footer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -148,6 +148,7 @@ final class ConditionsSettingsViewController: SettingsTabViewController, NSTable
         cell.checkbox.tag = row
         cell.checkbox.target = self
         cell.checkbox.action = #selector(toggleEnabled(_:))
+        cell.checkbox.setAccessibilityLabel("Enable \(rule.sentence)")
         cell.label.stringValue = rule.sentence
         cell.label.textColor = rule.enabled ? .labelColor : .tertiaryLabelColor
         return cell
@@ -167,15 +168,15 @@ private final class RuleCell: NSTableCellView {
         identifier = NSUserInterfaceItemIdentifier("RuleCell")
         checkbox.translatesAutoresizingMaskIntoConstraints = false
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 12)
+        label.font = Typography.subheadline
         label.lineBreakMode = .byTruncatingTail
         addSubview(checkbox)
         addSubview(label)
         NSLayoutConstraint.activate([
-            checkbox.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            checkbox.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Spacing.xs),
             checkbox.centerYAnchor.constraint(equalTo: centerYAnchor),
-            label.leadingAnchor.constraint(equalTo: checkbox.trailingAnchor, constant: 6),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            label.leadingAnchor.constraint(equalTo: checkbox.trailingAnchor, constant: Spacing.sm),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Spacing.sm),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }

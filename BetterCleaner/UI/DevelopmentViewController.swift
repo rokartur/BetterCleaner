@@ -31,7 +31,6 @@ final class DevelopmentViewController: NSViewController {
         fileListVC.onRescanRequested = { [weak self] in self?.rescan() }
         fileListVC.onReclaimableChanged = { [weak self] bytes in self?.onReclaimable?(bytes) }
         fileListVC.enableSearch(placeholder: "Search caches…")
-        if let s = NavCatalog.section(id: "devenv") { fileListVC.setSectionBadge(symbol: s.icon) }
     }
 
     func startIfNeeded() {
@@ -41,6 +40,10 @@ final class DevelopmentViewController: NSViewController {
     }
 
     func rescan() {
+        guard FullDiskAccess.refresh() else {
+            fileListVC.showFullDiskAccessRequired()
+            return
+        }
         fileListVC.showLoading("Scanning developer caches…")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let sections = DevEnvironmentScanner.scan()
@@ -52,7 +55,8 @@ final class DevelopmentViewController: NSViewController {
                 self.fileListVC.showResults(
                     sections,
                     title: "Development",
-                    subtitle: "\(count) caches in \(sections.count) environments · \(FileSize.string(total))"
+                    subtitle: "\(count) cache\(count == 1 ? "" : "s") in \(sections.count) environment\(sections.count == 1 ? "" : "s") · ",
+                    metric: FileSize.string(total)
                 )
                 self.onReclaimable?(reclaimable)
             }

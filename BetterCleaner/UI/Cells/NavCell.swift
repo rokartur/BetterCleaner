@@ -1,16 +1,15 @@
 import AppKit
-import QuartzCore
 
-/// Row cell for the navigation sidebar, rendered 1:1 with the BetterSettings tab
-/// cell: a white SF Symbol on a rounded colored gradient badge (`NavIconBadge`),
-/// the page title, and an optional trailing reclaimable size. Content sits inside
-/// the 9pt selection capsule (`NavRowView`); the title + size invert to white on
-/// the emphasized (key-window) accent capsule, while the colored badge keeps its
-/// tint (System Settings behavior).
+/// Native source-list row: a template SF Symbol, page title, and optional
+/// reclaimable size. AppKit owns selection, vibrancy, focus, and contrast.
 final class NavCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("NavCell")
 
-    private let iconBadge = NavIconBadge()
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet { updateForegroundColors() }
+    }
+
+    private let iconView = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
     private let sizeField = NSTextField(labelWithString: "")
 
@@ -22,138 +21,78 @@ final class NavCell: NSTableCellView {
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
     private func setup() {
-        iconBadge.translatesAutoresizingMaskIntoConstraints = false
+        iconView.translatesAutoresizingMaskIntoConstraints = false
         titleField.translatesAutoresizingMaskIntoConstraints = false
         sizeField.translatesAutoresizingMaskIntoConstraints = false
 
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.contentTintColor = .secondaryLabelColor
+        iconView.setAccessibilityElement(false)
+        iconView.setContentHuggingPriority(.required, for: .horizontal)
         titleField.lineBreakMode = .byTruncatingTail
         titleField.font = Typography.body
+        // The page name is what the user navigates by, so it outranks the size
+        // badge for width — otherwise "System Junk" reads "System Ju… 20.07 GB".
+        titleField.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        sizeField.font = Typography.monospacedDigit(.subheadline)
+        sizeField.font = Typography.monospacedDigit(.caption1)
         sizeField.textColor = .secondaryLabelColor
         sizeField.alignment = .right
+        sizeField.lineBreakMode = .byTruncatingTail
         sizeField.setContentHuggingPriority(.required, for: .horizontal)
-        sizeField.setContentCompressionResistancePriority(.required, for: .horizontal)
+        sizeField.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
-        addSubview(iconBadge)
+        addSubview(iconView)
         addSubview(titleField)
         addSubview(sizeField)
 
-        // The title is the designated outlet so NSTableCellView auto-inverts it to
-        // white on the emphasized capsule.
-        textField = titleField
+        // AppKit still owns the source-list selection fill; these semantic
+        // foregrounds keep custom subviews legible as cells are reused. Don't
+        // register the custom field as NSTableCellView.textField: AppKit would
+        // overwrite its semantic color after backgroundStyle changes.
+        updateForegroundColors()
 
-        // Inset content past the capsule edge: capsule (9pt) + inner padding (6pt).
-        let contentInset = Metrics.sidebarRowPadding + Metrics.sidebarContentPadding
         NSLayoutConstraint.activate([
-            iconBadge.leadingAnchor.constraint(equalTo: leadingAnchor, constant: contentInset),
-            iconBadge.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconBadge.widthAnchor.constraint(equalToConstant: Metrics.badgeSize),
-            iconBadge.heightAnchor.constraint(equalToConstant: Metrics.badgeSize),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Spacing.sm),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 16),
+            iconView.heightAnchor.constraint(equalToConstant: 16),
 
-            titleField.leadingAnchor.constraint(equalTo: iconBadge.trailingAnchor, constant: Metrics.sidebarContentPadding),
+            titleField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: Spacing.sm),
             titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
             titleField.trailingAnchor.constraint(lessThanOrEqualTo: sizeField.leadingAnchor, constant: -Spacing.sm),
 
-            sizeField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -contentInset),
+            sizeField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Spacing.sm),
             sizeField.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
+    private func updateForegroundColors() {
+        let selectedColor: NSColor? = backgroundStyle == .emphasized ? .alternateSelectedControlTextColor : nil
+        titleField.textColor = selectedColor ?? .labelColor
+        iconView.contentTintColor = selectedColor ?? .secondaryLabelColor
+        sizeField.textColor = selectedColor ?? .secondaryLabelColor
+    }
+
     /// `size` is the page's reclaimable bytes (nil/0 hides the label).
-    func configure(symbol: String, title: String, size: Int64?, color: NSColor) {
-        iconBadge.configure(symbol: symbol, color: color)
+    func configure(symbol: String, title: String, size: Int64?) {
+        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+        image?.isTemplate = true
+        iconView.image = image
         titleField.stringValue = title
+        titleField.toolTip = title
         if let size, size > 0 {
-            sizeField.stringValue = FileSize.string(size)
+            // Compact form: the badge slot is narrow, and the second decimal of
+            // "20.07 GB" changes no decision — losing the unit to truncation does.
+            let sizeText = FileSize.shortString(size)
+            sizeField.stringValue = sizeText
             sizeField.isHidden = false
+            setAccessibilityLabel("\(title), \(sizeText) reclaimable")
         } else {
             sizeField.stringValue = ""
             sizeField.isHidden = true
+            setAccessibilityLabel(title)
         }
-    }
-
-    override var backgroundStyle: NSView.BackgroundStyle {
-        didSet {
-            // The trailing size isn't auto-managed the way the designated `textField`
-            // is: white on the emphasized accent capsule, secondary otherwise. The
-            // colored badge keeps its tint regardless, so it isn't touched here.
-            sizeField.textColor = (backgroundStyle == .emphasized) ? .white : .secondaryLabelColor
-        }
-    }
-}
-
-/// The rounded colored icon badge: a white SF Symbol over a subtle vertical
-/// gradient tile with a hairline border + soft shadow. A self-contained port of
-/// BetterSettings' `SidebarIconBadgeView` (its sidebar component is internal, so
-/// it can't be imported standalone).
-final class NavIconBadge: NSView {
-    override var allowsVibrancy: Bool { false }
-
-    private let gradientLayer = CAGradientLayer()
-    private let symbolView = NSImageView()
-    /// The dynamic page color, kept so the (static cgColor) layer fills can be
-    /// re-resolved when the system appearance flips light<->dark.
-    private var tileColor: NSColor = .systemBlue
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.cornerRadius = Metrics.badgeCornerRadius
-        layer?.cornerCurve = .continuous
-        layer?.masksToBounds = false
-        layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowRadius = 2
-        layer?.shadowOffset = CGSize(width: 0, height: -0.5)
-        layer?.shadowOpacity = 0.30
-        gradientLayer.startPoint = CGPoint(x: 0.5, y: 1.0)
-        gradientLayer.endPoint = CGPoint(x: 0.5, y: 0.0)
-        gradientLayer.cornerRadius = Metrics.badgeCornerRadius
-        gradientLayer.cornerCurve = .continuous
-        gradientLayer.masksToBounds = true
-        layer?.addSublayer(gradientLayer)
-
-        symbolView.translatesAutoresizingMaskIntoConstraints = false
-        symbolView.imageScaling = .scaleProportionallyDown
-        symbolView.contentTintColor = .white
-        addSubview(symbolView)
-        NSLayoutConstraint.activate([
-            symbolView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            symbolView.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
-
-    override func layout() {
-        super.layout()
-        gradientLayer.frame = bounds
-        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: Metrics.badgeCornerRadius, cornerHeight: Metrics.badgeCornerRadius, transform: nil)
-    }
-
-    // CALayer color properties are static cgColor snapshots; rebuild them so a
-    // dynamic system color (.systemBlue/.systemOrange/…) re-resolves on a
-    // light<->dark switch instead of staying frozen until the next reload.
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyTileColors()
-    }
-
-    func configure(symbol: String, color: NSColor) {
-        // ~11pt glyph in the 20pt tile — smaller, with System-Settings-like padding.
-        let cfg = NSImage.SymbolConfiguration(pointSize: Metrics.badgeIconSize - 5, weight: .medium)
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(cfg)
-        image?.isTemplate = true
-        symbolView.image = image
-        tileColor = color
-        applyTileColors()
-    }
-
-    private func applyTileColors() {
-        // Lighten the top edge for the System Settings tile sheen.
-        let top = tileColor.blended(withFraction: 0.18, of: .white) ?? tileColor
-        gradientLayer.colors = [top.cgColor, tileColor.cgColor]
-        layer?.borderWidth = 0.5
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.20).cgColor
     }
 }

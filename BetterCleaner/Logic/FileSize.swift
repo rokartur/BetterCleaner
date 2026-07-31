@@ -55,12 +55,33 @@ enum FileSize {
     /// `ByteCountFormatter` is NOT thread-safe; every `FileSize.string` caller
     /// runs on the main thread — keep it that way.
     private static let byteFormatter: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.countStyle = .file
-        return f
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter
     }()
 
     static func string(_ bytes: Int64) -> String {
         byteFormatter.string(fromByteCount: bytes)
+    }
+
+    /// Compact form for narrow badges (the sidebar's reclaimable size), bounded to
+    /// six characters: one decimal below 10, none at or above it — "9.4 GB",
+    /// "20 GB", "999 GB". `ByteCountFormatter` keeps two decimals for GB, and
+    /// "20.07 GB" truncates to a meaningless "20.07…" in that slot while the second
+    /// decimal changes no decision. Decimal (1000-based) units, matching
+    /// `.file` count style, so the two forms never disagree about the unit.
+    static func shortString(_ bytes: Int64) -> String {
+        guard bytes > 0 else { return "Zero KB" }
+        let units: [(scale: Double, symbol: String)] = [
+            (1e12, "TB"), (1e9, "GB"), (1e6, "MB"), (1e3, "KB"),
+        ]
+        let value = Double(bytes)
+        for unit in units where value >= unit.scale {
+            let scaled = value / unit.scale
+            let format = scaled < 10 ? "%.1f %@" : "%.0f %@"
+            return String(format: format, scaled, unit.symbol)
+        }
+        // Sub-KB: the abbreviated unit keeps even 999 inside the badge's width.
+        return "\(bytes) B"
     }
 }

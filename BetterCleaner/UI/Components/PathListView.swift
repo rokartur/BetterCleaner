@@ -64,7 +64,7 @@ final class PathListView: NSView, NSTableViewDataSource, NSTableViewDelegate {
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.heightAnchor.constraint(equalToConstant: 120),
-            footer.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 6),
+            footer.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: Spacing.sm),
             footer.leadingAnchor.constraint(equalTo: leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: trailingAnchor),
             footer.bottomAnchor.constraint(equalTo: bottomAnchor),

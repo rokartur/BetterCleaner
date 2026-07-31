@@ -32,7 +32,6 @@ final class OrphanedViewController: NSViewController {
         fileListVC.onReclaimableChanged = { [weak self] bytes in self?.onReclaimable?(bytes) }
         fileListVC.enableAssignToApp { [weak self] urls in self?.presentAssignSheet(for: urls) }
         fileListVC.enableSearch(placeholder: "Search files…")
-        if let s = NavCatalog.section(id: "orphaned") { fileListVC.setSectionBadge(symbol: s.icon) }
     }
 
     func startIfNeeded() {
@@ -42,6 +41,10 @@ final class OrphanedViewController: NSViewController {
     }
 
     func rescan() {
+        guard FullDiskAccess.refresh() else {
+            fileListVC.showFullDiskAccessRequired()
+            return
+        }
         fileListVC.showLoading("Scanning for orphaned files…", determinate: true)
         // Guard against overlapping rescans (startIfNeeded + toolbar refresh +
         // post-trash) — drop a slower older scan so it can't clobber newer results.
@@ -66,7 +69,12 @@ final class OrphanedViewController: NSViewController {
             let reclaimable = items.filter { $0.isAutoSelectable }.reduce(0) { $0 + $1.size }
             DispatchQueue.main.async {
                 guard let self, generation == self.scanGeneration else { return }
-                self.fileListVC.showResults(sections, title: "Orphaned Files", subtitle: "\(items.count) items · \(FileSize.string(total))")
+                self.fileListVC.showResults(
+                    sections,
+                    title: "Orphaned Files",
+                    subtitle: "\(items.count) item\(items.count == 1 ? "" : "s") · ",
+                    metric: FileSize.string(total)
+                )
                 self.onReclaimable?(reclaimable)
             }
         }
@@ -88,7 +96,9 @@ final class OrphanedViewController: NSViewController {
         let what = urls.count == 1 ? "“\(urls[0].lastPathComponent)”" : "\(urls.count) items"
         let alert = NSAlert()
         alert.messageText = "Assign to App"
-        alert.informativeText = "Attribute \(what) to an installed app. \(urls.count == 1 ? "It" : "They") will no longer be listed as orphaned and will be removed when you uninstall that app. You can undo this in Settings → Rules."
+        let pronoun = urls.count == 1 ? "It" : "They"
+        alert.informativeText = "Attribute \(what) to an installed app. \(pronoun) will no longer be listed as orphaned "
+            + "and will be removed when you uninstall that app. You can undo this in Settings → Rules."
         alert.accessoryView = popup
         alert.addButton(withTitle: "Assign")
         alert.addButton(withTitle: "Cancel")

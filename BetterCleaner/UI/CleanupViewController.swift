@@ -31,7 +31,6 @@ final class CleanupViewController: NSViewController {
         fileListVC.onRescanRequested = { [weak self] in self?.rescan() }
         fileListVC.onReclaimableChanged = { [weak self] bytes in self?.onReclaimable?(bytes) }
         fileListVC.enableSearch(placeholder: "Search junk…")
-        if let s = NavCatalog.section(id: "junk") { fileListVC.setSectionBadge(symbol: s.icon) }
     }
 
     func startIfNeeded() {
@@ -41,6 +40,10 @@ final class CleanupViewController: NSViewController {
     }
 
     func rescan() {
+        guard FullDiskAccess.refresh() else {
+            fileListVC.showFullDiskAccessRequired()
+            return
+        }
         fileListVC.showLoading("Scanning for system junk…")
         let includeSystem = Preferences.shared.includeSystemFiles
         let excluded = ScanExclusions.set(from: Preferences.shared.orphanExclusionURLs)
@@ -51,10 +54,13 @@ final class CleanupViewController: NSViewController {
             let reclaimable = items.filter { $0.isAutoSelectable }.reduce(0) { $0 + $1.size }
             DispatchQueue.main.async {
                 guard let self else { return }
+                // The safe/review split moved to the legend row under the header,
+                // so the summary stays one scannable "how much is here" line.
                 self.fileListVC.showResults(
                     sections,
                     title: "System Junk",
-                    subtitle: "\(items.count) items · \(FileSize.string(total)) found · \(FileSize.string(reclaimable)) preselected"
+                    subtitle: "\(items.count) item\(items.count == 1 ? "" : "s") · ",
+                    metric: FileSize.string(total)
                 )
                 self.onReclaimable?(reclaimable)
             }

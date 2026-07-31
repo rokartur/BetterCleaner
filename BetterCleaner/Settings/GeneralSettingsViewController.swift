@@ -12,21 +12,21 @@ final class GeneralSettingsViewController: SettingsTabViewController {
 
         addRow(to: scanning, title: "Include system files",
                subtitle: "Also scan /Library. Removing these requires an admin password.",
-               accessory: makeSwitch(Preferences.shared.includeSystemFiles, #selector(includeSystemChanged(_:))))
+               accessory: makeSwitch("Include system files", Preferences.shared.includeSystemFiles, #selector(includeSystemChanged(_:))))
 
         addRow(to: scanning, title: "Confirm before deleting",
-               accessory: makeSwitch(Preferences.shared.confirmBeforeDelete, #selector(confirmChanged(_:))))
+               accessory: makeSwitch("Confirm before deleting", Preferences.shared.confirmBeforeDelete, #selector(confirmChanged(_:))))
 
         let uninstall = addSection(title: "Complete Uninstall", anchor: "uninstall")
         addRow(to: uninstall, title: "Stop helper processes",
                subtitle: "Force-quit background helpers that keep running after the app closes.",
-               accessory: makeSwitch(Preferences.shared.completeUninstallForceQuit, #selector(forceQuitChanged(_:))))
+               accessory: makeSwitch("Stop helper processes", Preferences.shared.completeUninstallForceQuit, #selector(forceQuitChanged(_:))))
         addRow(to: uninstall, title: "Reset privacy permissions",
                subtitle: "Clear the app's Camera/Microphone/Accessibility grants. You'll re-grant if reinstalled.",
-               accessory: makeSwitch(Preferences.shared.completeUninstallResetPrivacy, #selector(resetPrivacyChanged(_:))))
+               accessory: makeSwitch("Reset privacy permissions", Preferences.shared.completeUninstallResetPrivacy, #selector(resetPrivacyChanged(_:))))
         addRow(to: uninstall, title: "Remove Keychain items",
                subtitle: "Delete passwords the app saved under its bundle id.",
-               accessory: makeSwitch(Preferences.shared.completeUninstallKeychain, #selector(keychainChanged(_:))))
+               accessory: makeSwitch("Remove Keychain items", Preferences.shared.completeUninstallKeychain, #selector(keychainChanged(_:))))
         // Full Disk Access (and every other capability) now lives in the
         // dedicated Permissions section of the sidebar, not buried in Settings.
 
@@ -42,14 +42,15 @@ final class GeneralSettingsViewController: SettingsTabViewController {
                accessory: intervalPopup)
         addRow(to: updates, title: "Include pre-releases",
                subtitle: "Get beta builds before they ship to everyone.",
-               accessory: makeSwitch(updater.includePreReleases, #selector(preReleaseChanged(_:))))
+               accessory: makeSwitch("Include pre-releases", updater.includePreReleases, #selector(preReleaseChanged(_:))))
     }
 
-    private func makeSwitch(_ on: Bool, _ action: Selector) -> NSSwitch {
+    private func makeSwitch(_ label: String, _ on: Bool, _ action: Selector) -> NSSwitch {
         let toggle = NSSwitch()
         toggle.state = on ? .on : .off
         toggle.target = self
         toggle.action = action
+        toggle.setAccessibilityLabel(label)
         return toggle
     }
 

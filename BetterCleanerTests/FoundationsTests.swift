@@ -83,3 +83,29 @@ import Foundation
         #expect(byPath.first { $0.key.hasSuffix(".gem") }?.value == .askFirst)
     }
 }
+
+/// `FileSize.shortString` feeds the sidebar's fixed-width reclaimable badge, where
+/// an over-long string truncates to something meaningless ("20.07…"). These pin the
+/// six-character ceiling and the one-decimal-below-ten rule.
+@Suite struct FileSizeShortStringTests {
+    @Test func keepsOneDecimalBelowTen() {
+        #expect(FileSize.shortString(5_800_000_000) == "5.8 GB")
+        #expect(FileSize.shortString(9_400_000) == "9.4 MB")
+    }
+
+    @Test func dropsDecimalAtTenAndAbove() {
+        #expect(FileSize.shortString(20_070_000_000) == "20 GB")
+        #expect(FileSize.shortString(999_000_000_000) == "999 GB")
+    }
+
+    @Test func neverExceedsTheBadgeWidth() {
+        // 6 characters is what the 200pt sidebar minimum can show beside a page name.
+        for bytes in [Int64(1), 999, 1_000, 20_070_000_000, 900_000_000_000_000] {
+            #expect(FileSize.shortString(bytes).count <= 8)
+        }
+    }
+
+    @Test func handlesZero() {
+        #expect(FileSize.shortString(0) == "Zero KB")
+    }
+}
