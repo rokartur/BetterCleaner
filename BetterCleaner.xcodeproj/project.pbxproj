@@ -629,7 +629,7 @@
 			repositoryURL = "https://github.com/rokartur/BetterShortcuts.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.2.0;
+				minimumVersion = 0.3.3;
 			};
 		};
 		BP0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterPermissions" */ = {
@@ -645,7 +645,7 @@
 			repositoryURL = "https://github.com/rokartur/BetterSettings.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.2.8;
+				minimumVersion = 0.2.9;
 			};
 		};
 		BU0000000000000000000001 /* XCRemoteSwiftPackageReference "BetterUpdater" */ = {
@@ -653,7 +653,7 @@
 			repositoryURL = "https://github.com/rokartur/BetterUpdater.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.2.1;
+				minimumVersion = 0.2.3;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
