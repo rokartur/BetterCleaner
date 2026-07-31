@@ -38,11 +38,9 @@ final class HomebrewMaintenanceViewController: NSViewController {
     private var isBusy = false
 
     override func loadView() {
-        header.configure(
-            title: "Homebrew Maintenance",
-            summary: "Health, cache, analytics, and installation statistics"
-        )
-        header.setBadge(symbol: "wrench.and.screwdriver.fill")
+        // The toolbar title says "Maintenance"; the header keeps only the one-line
+        // description of what lives on this page.
+        header.summary = "Health, cache, analytics, and installation statistics"
         header.translatesAutoresizingMaskIntoConstraints = false
 
         activity.style = .spinning
@@ -273,8 +271,7 @@ final class HomebrewMaintenanceViewController: NSViewController {
         let alert = NSAlert()
         alert.messageText = "Clear the Homebrew cache?"
         alert.informativeText = "Homebrew will remove cached downloads and stale files it considers safe to clean. Packages can download these files again when needed."
-        alert.addButton(withTitle: "Clear Cache")
-        alert.addButton(withTitle: "Cancel")
+        Buttons.addDestructiveConfirmation("Clear Cache", to: alert)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         presentProgress(
             title: "Clearing Homebrew cache…",

@@ -49,6 +49,11 @@ final class HomebrewProgressViewController: NSViewController {
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
+        spinner.setAccessibilityElement(false)
+
+        // The log is the sheet's content, not decoration: name it so VoiceOver can
+        // reach the command output instead of announcing an unlabelled text area.
+        textView.setAccessibilityLabel("Command output")
 
         textView.isEditable = false
         textView.isSelectable = true
@@ -77,7 +82,7 @@ final class HomebrewProgressViewController: NSViewController {
 
         actionButton.translatesAutoresizingMaskIntoConstraints = false
 
-        for v in [header, scrollView, actionButton] { root.addSubview(v) }
+        for child in [header, scrollView, actionButton] { root.addSubview(child) }
         NSLayoutConstraint.activate([
             root.widthAnchor.constraint(equalToConstant: 560),
             root.heightAnchor.constraint(equalToConstant: 360),
@@ -132,10 +137,14 @@ final class HomebrewProgressViewController: NSViewController {
     private func finish(_ success: Bool) {
         running = false
         spinner.stopAnimation(nil)
+        let outcome = success ? "Done" : (runner.isCancelled ? "Cancelled" : "Failed")
         let footer = success ? "\n✓ Done." : (runner.isCancelled ? "\n✗ Cancelled." : "\n✗ Failed.")
         append(footer + "\n")
         actionButton.isEnabled = true
         actionButton.title = "Done"
+        // The ✓/✗ in the log is sighted-only feedback; put the outcome where
+        // VoiceOver reads it, and don't rely on the spinner stopping to signal it.
+        titleLabel.setAccessibilityLabel("\(titleLabel.stringValue) — \(outcome)")
         onComplete?(success)
     }
 

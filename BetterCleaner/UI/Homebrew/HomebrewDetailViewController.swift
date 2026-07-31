@@ -2,8 +2,8 @@ import AppKit
 
 /// Detail pane for the Homebrew page, styled 1:1 after TapHouse: a hero icon tile +
 /// big name + "version · Type", an Overview / Dependencies tab strip, then sectioned
-/// content (Description, an Information key/value grid, inline Actions). Services and
-/// taps reuse the same hero + Information + Actions layout without tabs.
+/// content (Description and an Information key/value grid). A shared sticky action
+/// bar keeps package, service, and tap actions visible without scrolling.
 ///
 /// Package mutations run in a streaming `HomebrewProgressViewController` sheet; quick
 /// service/tap commands run inline. `onChanged` fires after any mutation.
@@ -27,50 +27,29 @@ final class HomebrewDetailViewController: NSViewController {
     private enum Tab: Int { case overview, dependencies }
     private var tab: Tab = .overview
 
-    // Header (fixed, above the scroll).
-    private let heroTile = IconTileView(size: 60, corner: 14)
-    private let titleField = NSTextField(labelWithString: "")
-    private let subtitleIcon = NSImageView()
-    private let subtitleField = NSTextField(labelWithString: "")
+    // Header (fixed, above the scroll). The app-wide `PageHeaderView` — same icon
+    // slot, title, summary and status-glyph treatment as every other detail pane,
+    // instead of a Homebrew-only reimplementation of the same thing.
+    private let header = PageHeaderView()
     private let headerDivider = NSBox()
     private let tabs = NSSegmentedControl(labels: ["Overview", "Dependencies"],
                                           trackingMode: .selectOne, target: nil, action: nil)
+
+    /// Collapses the tab strip's row when it's hidden (services and taps have no
+    /// tabs). Without it the strip keeps its intrinsic height and those panes open
+    /// with a dead band between the divider and the first section.
+    private var tabsHeightZero: NSLayoutConstraint!
 
     private let contentScroll = NSScrollView()
     private let contentStack = NSStackView()
     private let loadingView = LoadingStateView()
     private let emptyState = EmptyStateView(symbol: "cup.and.saucer")
-
-    private var headerStack: NSStackView!
+    private let actionBar = ActionBarView()
 
     // MARK: - Layout
 
     override func loadView() {
-        titleField.font = .systemFont(ofSize: 26, weight: .bold)
-        titleField.lineBreakMode = .byTruncatingTail
-
-        subtitleIcon.image = NSImage(systemSymbolName: "tag", accessibilityDescription: nil)
-        subtitleIcon.contentTintColor = .tertiaryLabelColor
-        subtitleIcon.symbolConfiguration = .init(pointSize: 11, weight: .regular)
-        subtitleIcon.setContentHuggingPriority(.required, for: .horizontal)
-        subtitleField.font = Typography.subheadline
-        subtitleField.textColor = .secondaryLabelColor
-
-        let subtitleRow = NSStackView(views: [subtitleIcon, subtitleField])
-        subtitleRow.orientation = .horizontal
-        subtitleRow.alignment = .centerY
-        subtitleRow.spacing = 5
-
-        let titleColumn = NSStackView(views: [titleField, subtitleRow])
-        titleColumn.orientation = .vertical
-        titleColumn.alignment = .leading
-        titleColumn.spacing = 4
-
-        headerStack = NSStackView(views: [heroTile, titleColumn])
-        headerStack.orientation = .horizontal
-        headerStack.alignment = .centerY
-        headerStack.spacing = Spacing.md
-        headerStack.translatesAutoresizingMaskIntoConstraints = false
+        header.translatesAutoresizingMaskIntoConstraints = false
 
         headerDivider.boxType = .separator
         headerDivider.translatesAutoresizingMaskIntoConstraints = false
@@ -79,6 +58,7 @@ final class HomebrewDetailViewController: NSViewController {
         tabs.target = self
         tabs.action = #selector(tabChanged)
         tabs.selectedSegment = 0
+        tabsHeightZero = tabs.heightAnchor.constraint(equalToConstant: 0)
 
         contentStack.orientation = .vertical
         contentStack.alignment = .leading
@@ -106,23 +86,34 @@ final class HomebrewDetailViewController: NSViewController {
         ])
 
         let root = NSView()
-        for v in [headerStack!, headerDivider, tabs, contentScroll, emptyState, loadingView] { root.addSubview(v) }
+        actionBar.translatesAutoresizingMaskIntoConstraints = false
+        for childView in [header, headerDivider, tabs, contentScroll, actionBar, emptyState, loadingView] {
+            root.addSubview(childView)
+        }
         NSLayoutConstraint.activate([
-            headerStack.topAnchor.constraint(equalTo: root.topAnchor, constant: Spacing.lg),
-            headerStack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
-            headerStack.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -Spacing.lg),
+            // Same top margin as every other detail pane (Spacing.md), so switching
+            // sections doesn't nudge the title up and down.
+            header.topAnchor.constraint(equalTo: root.topAnchor, constant: Spacing.md),
+            header.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
+            header.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
 
-            headerDivider.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: Spacing.md),
+            headerDivider.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Spacing.md),
             headerDivider.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
             headerDivider.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
 
             tabs.topAnchor.constraint(equalTo: headerDivider.bottomAnchor, constant: Spacing.md),
-            tabs.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+            // Leading-aligned with the content below it. A lone centred segmented
+            // control reads as a web tab bar and breaks the pane's left margin.
+            tabs.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
 
             contentScroll.topAnchor.constraint(equalTo: tabs.bottomAnchor, constant: Spacing.md),
             contentScroll.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Spacing.lg),
             contentScroll.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Spacing.lg),
-            contentScroll.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -Spacing.lg),
+            contentScroll.bottomAnchor.constraint(equalTo: actionBar.topAnchor),
+
+            actionBar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            actionBar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            actionBar.bottomAnchor.constraint(equalTo: root.bottomAnchor),
 
             emptyState.topAnchor.constraint(equalTo: root.topAnchor),
             emptyState.leadingAnchor.constraint(equalTo: root.leadingAnchor),
@@ -141,82 +132,121 @@ final class HomebrewDetailViewController: NSViewController {
     // MARK: - Public entry
 
     func show(_ selection: HomebrewSelection?) {
-        dependents = []; depTree = ""; sizeText = ""; dependencyError = ""; zapEnabled = false; tab = .overview
+        dependents = []
+        depTree = ""
+        sizeText = ""
+        dependencyError = ""
+        zapEnabled = false
+        tab = .overview
         tabs.selectedSegment = 0
-        guard let selection else { self.selection = nil; showPlaceholder(); return }
+        guard let selection else {
+            self.selection = nil
+            showPlaceholder()
+            return
+        }
+        self.selection = selection
         switch selection {
-        case .package(let p): self.selection = .package(p); showPackage(p)
-        case .packageReference(let ref): self.selection = .packageReference(ref); showPackageReference(ref)
-        case .service(let s): self.selection = .service(s); showService(s)
-        case .tap(let t):     self.selection = .tap(t);     showTap(t)
+        case .package(let package): showPackage(package)
+        case .packageReference(let reference): showPackageReference(reference)
+        case .service(let service): showService(service)
+        case .tap(let tap): showTap(tap)
         }
     }
 
     private func showPlaceholder() {
         loadingView.stop()
         setChromeHidden(true)
+        // A quiet hint: the list column beside this pane is where the user acts,
+        // so this must not read as a second hero competing with it.
         emptyState.configure(symbol: "cup.and.saucer",
                              title: "Select an item",
-                             message: "Choose a package, service, or tap to manage it.")
+                             message: "Choose a package, service, or tap to manage it.",
+                             tone: .hint)
         emptyState.isHidden = false
     }
 
     private func setChromeHidden(_ hidden: Bool) {
-        headerStack.isHidden = hidden
+        header.isHidden = hidden
         headerDivider.isHidden = hidden
         contentScroll.isHidden = hidden
-        if hidden { tabs.isHidden = true }
+        actionBar.isHidden = hidden
+        if hidden { setTabsHidden(true) }
+    }
+
+    /// Hide the tab strip *and* collapse the space it reserved.
+    private func setTabsHidden(_ hidden: Bool) {
+        tabs.isHidden = hidden
+        tabsHeightZero.isActive = hidden
     }
 
     // MARK: - Package
 
-    private func showPackageReference(_ ref: HomebrewPackageRef) {
+    private func showPackageReference(_ reference: HomebrewPackageRef) {
         emptyState.isHidden = true
         setChromeHidden(true)
-        loadingView.startIndeterminate("Loading \(ref.token)…")
+        loadingView.startIndeterminate("Loading \(reference.token)…")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = Result { try HomebrewService.info(ref) }
+            let result = Result { try HomebrewService.info(reference) }
             DispatchQueue.main.async {
-                guard let self, case .packageReference(let current)? = self.selection, current == ref else { return }
+                guard let self,
+                      case .packageReference(let current)? = self.selection,
+                      current == reference else { return }
                 self.loadingView.stop()
                 switch result {
                 case .success(let package?):
                     self.selection = .package(package)
                     self.showPackage(package)
                 case .success(nil):
-                    self.showPackageReferenceError("Homebrew returned no package details.", ref: ref)
+                    self.showPackageReferenceError("Homebrew returned no package details.", reference: reference)
                 case .failure(let error):
-                    self.showPackageReferenceError(error.localizedDescription, ref: ref)
+                    self.showPackageReferenceError(error.localizedDescription, reference: reference)
                 }
             }
         }
     }
 
-    private func showPackageReferenceError(_ message: String, ref: HomebrewPackageRef) {
+    private func showPackageReferenceError(_ message: String, reference: HomebrewPackageRef) {
         emptyState.isHidden = false
-        emptyState.configure(symbol: "exclamationmark.triangle", title: "Couldn't load \(ref.token)",
-                             message: message, actionTitle: "Retry",
-                             action: { [weak self] in self?.showPackageReference(ref) })
+        emptyState.configure(
+            symbol: "exclamationmark.triangle",
+            title: "Couldn't load \(reference.token)",
+            message: message,
+            actionTitle: "Retry",
+            action: { [weak self] in self?.showPackageReference(reference) }
+        )
     }
 
-    private func showPackage(_ p: HomebrewPackage) {
+    private func showPackage(_ package: HomebrewPackage) {
         emptyState.isHidden = true
         setChromeHidden(false)
-        tabs.isHidden = false
+        setTabsHidden(false)
 
-        if let icon = appIcon(for: p) { heroTile.setAppIcon(icon) }
-        else { heroTile.setGlyph(p.isCask ? "macwindow" : "terminal", color: .systemBlue) }
-        titleField.stringValue = p.displayName
-        let version = isInstalled(p) ? p.installedVersion : p.latestVersion
-        subtitleField.stringValue = [version, p.isCask ? "Cask" : "Formula"]
-            .filter { !$0.isEmpty }.joined(separator: " · ")
+        if let icon = appIcon(for: package) {
+            header.setBadge(appIcon: icon)
+        } else {
+            header.setBadge(symbol: package.isCask ? "macwindow" : "terminal")
+        }
+        header.title = package.displayName
+        let version = isInstalled(package) ? package.installedVersion : package.latestVersion
+        let kind = package.isCask ? "Cask" : "Formula"
+        if package.isOutdated, isInstalled(package), !package.latestVersion.isEmpty {
+            // An available update is the one thing on this pane that changes what
+            // the user does next, so it gets the status treatment, not a grey line.
+            header.setStatus("\(version) → \(package.latestVersion) available · \(kind)",
+                             symbol: "arrow.up.circle.fill",
+                             tint: .systemOrange)
+        } else {
+            header.setSummary([version, kind].filter { !$0.isEmpty }.joined(separator: " · "))
+        }
 
         renderTabContent()
 
         // Load size + dependency info off the main thread, then re-render.
-        let reference = p.reference, isCask = p.isCask, installed = isInstalled(p)
+        let reference = package.reference
+        let isCask = package.isCask
+        let installed = isInstalled(package)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let size = HomebrewService.installedSize(p)
+            let size = HomebrewService.installedSize(package)
             var tree = ""
             var usedBy: [String] = []
             var dependencyError = ""
@@ -246,23 +276,23 @@ final class HomebrewDetailViewController: NSViewController {
     }
 
     private func renderTabContent() {
-        guard case .package(let p)? = selection else { return }
+        guard case .package(let package)? = selection else { return }
         clearSections()
+        configurePackageActions(package)
         switch tab {
         case .overview:
-            if p.isDisabled {
-                addSection("Unavailable", warningLabel(p.disableReason.isEmpty ? "Homebrew disabled this package." : p.disableReason))
-            } else if p.isDeprecated {
-                addSection("Deprecated", warningLabel(p.deprecationReason.isEmpty ? "Homebrew deprecated this package." : p.deprecationReason))
+            if package.isDisabled {
+                addSection("Unavailable", warningLabel(package.disableReason.isEmpty ? "Homebrew disabled this package." : package.disableReason))
+            } else if package.isDeprecated {
+                addSection("Deprecated", warningLabel(package.deprecationReason.isEmpty ? "Homebrew deprecated this package." : package.deprecationReason))
             }
-            if !p.description.isEmpty { addSection("Description", wrapLabel(p.description)) }
-            addSection("Information", kvGrid(packageInfoPairs(p)))
-            if !p.caveats.isEmpty { addSection("Caveats", monoLabel(p.caveats)) }
-            if !p.requirements.isEmpty { addSection("Requirements", wrapLabel(p.requirements.joined(separator: ", "))) }
-            addSection("Actions", packageActions(p))
+            if !package.description.isEmpty { addSection("Description", wrapLabel(package.description)) }
+            addSection("Information", kvGrid(packageInfoPairs(package)))
+            if !package.caveats.isEmpty { addSection("Caveats", monoLabel(package.caveats)) }
+            if !package.requirements.isEmpty { addSection("Requirements", wrapLabel(package.requirements.joined(separator: ", "))) }
         case .dependencies:
-            if !p.dependencies.isEmpty {
-                addSection("Dependencies", wrapLabel(p.dependencies.joined(separator: ", ")))
+            if !package.dependencies.isEmpty {
+                addSection("Dependencies", wrapLabel(package.dependencies.joined(separator: ", ")))
             }
             if !dependents.isEmpty {
                 let label = wrapLabel(dependents.joined(separator: ", "))
@@ -270,122 +300,172 @@ final class HomebrewDetailViewController: NSViewController {
             }
             if !depTree.isEmpty { addSection("Dependency tree", monoLabel(depTree)) }
             if !dependencyError.isEmpty { addSection("Couldn't load dependency details", wrapLabel(dependencyError)) }
-            if p.dependencies.isEmpty && dependents.isEmpty && depTree.isEmpty && dependencyError.isEmpty {
+            if package.dependencies.isEmpty && dependents.isEmpty && depTree.isEmpty && dependencyError.isEmpty {
                 addSection("Dependencies", wrapLabel("No dependencies."))
             }
         }
     }
 
-    private func packageInfoPairs(_ p: HomebrewPackage) -> [KeyValueView] {
-        var kv: [KeyValueView] = []
-        if isInstalled(p) {
-            kv.append(KeyValueView(key: "Installed", value: p.installedVersion))
+    private func packageInfoPairs(_ package: HomebrewPackage) -> [KeyValueView] {
+        var keyValues: [KeyValueView] = []
+        if isInstalled(package) {
+            keyValues.append(KeyValueView(key: "Installed", value: package.installedVersion))
         }
-        if !p.latestVersion.isEmpty {
-            kv.append(KeyValueView(key: "Latest", value: p.latestVersion))
+        if !package.latestVersion.isEmpty {
+            keyValues.append(KeyValueView(key: "Latest", value: package.latestVersion))
         }
-        if !p.homepage.isEmpty {
-            kv.append(KeyValueView(key: "Homepage", value: shortHost(p.homepage), link: true) { [weak self] in self?.openHomepage() })
+        if !package.homepage.isEmpty {
+            keyValues.append(KeyValueView(key: "Homepage", value: shortHost(package.homepage), link: true) { [weak self] in
+                self?.openHomepage()
+            })
         }
-        kv.append(KeyValueView(key: "Type", value: p.isCask ? "Cask" : "Formula (CLI)"))
-        if !sizeText.isEmpty { kv.append(KeyValueView(key: "Size", value: sizeText)) }
-        if !p.isCask, isInstalled(p) {
-            kv.append(KeyValueView(key: "Installed as", value: p.installedOnRequest ? "Direct install" : "Dependency"))
+        keyValues.append(KeyValueView(key: "Type", value: package.isCask ? "Cask" : "Formula (CLI)"))
+        if !sizeText.isEmpty { keyValues.append(KeyValueView(key: "Size", value: sizeText)) }
+        if !package.isCask, isInstalled(package) {
+            keyValues.append(KeyValueView(
+                key: "Installed as",
+                value: package.installedOnRequest ? "Direct install" : "Dependency"
+            ))
         }
-        if !p.tap.isEmpty { kv.append(KeyValueView(key: "Tap", value: p.tap)) }
-        if !p.license.isEmpty { kv.append(KeyValueView(key: "License", value: p.license)) }
-        if p.autoUpdates { kv.append(KeyValueView(key: "Updates", value: "Managed by the app")) }
-        if p.hasService { kv.append(KeyValueView(key: "Service", value: "Available")) }
-        return kv
+        if !package.tap.isEmpty { keyValues.append(KeyValueView(key: "Tap", value: package.tap)) }
+        if !package.license.isEmpty { keyValues.append(KeyValueView(key: "License", value: package.license)) }
+        if package.autoUpdates { keyValues.append(KeyValueView(key: "Updates", value: "Managed by the app")) }
+        if package.hasService { keyValues.append(KeyValueView(key: "Service", value: "Available")) }
+        return keyValues
     }
 
-    private func packageActions(_ p: HomebrewPackage) -> NSView {
-        var buttons: [NSView] = []
-        if !isInstalled(p) {
-            let install = actionButton("Install", "arrow.down.circle", #selector(installPackage))
-            install.isEnabled = !p.isDisabled
-            buttons.append(install)
-            let row = NSStackView(views: buttons)
-            row.orientation = .horizontal
-            row.alignment = .centerY
-            row.spacing = Spacing.sm
-            return row
-        }
-        if p.isOutdated {
-            buttons.append(actionButton("Upgrade", "arrow.up.circle", #selector(upgrade)))
-        }
-        buttons.append(actionButton(p.isPinned ? "Unpin" : "Pin", p.isPinned ? "pin.slash" : "pin", #selector(pin)))
-        buttons.append(actionButton("Uninstall", "trash", #selector(uninstall)))
+    private func configurePackageActions(_ package: HomebrewPackage) {
+        actionBar.isHidden = false
+        actionBar.setLeading([])
 
-        let row = NSStackView(views: buttons)
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = Spacing.sm
+        let name = package.displayName
+        guard isInstalled(package) else {
+            let install = configuredAction(
+                Buttons.primary("Install", target: self, action: #selector(installPackage)),
+                symbol: "arrow.down.circle",
+                subject: name
+            )
+            install.isEnabled = !package.isDisabled
+            actionBar.setTrailing([install])
+            return
+        }
 
-        guard p.isCask else { return row }
-        // Casks get a zap toggle above the buttons.
-        let zap = NSButton(checkboxWithTitle: "Also remove all related files (zap)", target: self, action: #selector(zapToggled(_:)))
-        zap.state = zapEnabled ? .on : .off
-        let col = NSStackView(views: [zap, row])
-        col.orientation = .vertical
-        col.alignment = .leading
-        col.spacing = Spacing.sm
-        return col
+        var leading: [NSView] = []
+        if package.isCask {
+            let zap = NSButton(
+                checkboxWithTitle: "Also remove related files (zap)",
+                target: self,
+                action: #selector(zapToggled(_:))
+            )
+            zap.state = zapEnabled ? .on : .off
+            zap.toolTip = "Also remove \(name)'s settings, caches and support files, not just the app."
+            zap.setAccessibilityLabel("Also remove \(name)'s related files")
+            zap.setAccessibilityHelp("Removes settings, caches and support files as well as the app.")
+            leading.append(zap)
+        }
+
+        var trailing: [NSView] = [
+            configuredAction(
+                Buttons.secondary(package.isPinned ? "Unpin" : "Pin", target: self, action: #selector(pin)),
+                symbol: package.isPinned ? "pin.slash" : "pin",
+                subject: name
+            )
+        ]
+        if package.isOutdated {
+            trailing.append(configuredAction(
+                Buttons.primary("Upgrade", target: self, action: #selector(upgrade)),
+                symbol: "arrow.up.circle",
+                subject: name
+            ))
+        }
+        trailing.append(configuredAction(
+            Buttons.destructive("Uninstall", target: self, action: #selector(uninstall)),
+            symbol: "trash",
+            subject: name
+        ))
+
+        actionBar.setLeading(leading)
+        actionBar.setTrailing(trailing)
     }
 
-    private func appIcon(for p: HomebrewPackage) -> NSImage? {
-        guard p.isCask else { return nil }
-        guard let app = p.actualAppURLs.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else { return nil }
+    private func appIcon(for package: HomebrewPackage) -> NSImage? {
+        guard package.isCask else { return nil }
+        guard let app = package.actualAppURLs.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
+            return nil
+        }
         return NSWorkspace.shared.icon(forFile: app.path)
     }
 
     // MARK: - Service
 
-    private func showService(_ s: ServiceInfo) {
+    private func showService(_ service: ServiceInfo) {
         emptyState.isHidden = true
         setChromeHidden(false)
-        tabs.isHidden = true
-        heroTile.setGlyph("gearshape.2", color: s.isRunning ? .systemGreen : .systemGray)
-        titleField.stringValue = s.name
-        subtitleField.stringValue = "Service · \(s.status.capitalized)"
+        setTabsHidden(true)
+        header.setBadge(symbol: "gearshape.2")
+        header.title = service.name
+        // Symbol + tint, so "running" survives grayscale and Increased Contrast
+        // rather than living only in a green tile.
+        if service.isRunning {
+            header.setStatus("Running", symbol: "play.fill", tint: .systemGreen)
+        } else {
+            header.setSummary("Service · \(service.status.capitalized)")
+        }
 
         clearSections()
-        var kv: [KeyValueView] = [KeyValueView(key: "Status", value: s.status.capitalized)]
-        if let user = s.user, !user.isEmpty { kv.append(KeyValueView(key: "User", value: user)) }
-        if let file = s.file, !file.isEmpty { kv.append(KeyValueView(key: "File", value: file)) }
-        addSection("Information", kvGrid(kv))
+        var keyValues: [KeyValueView] = [KeyValueView(key: "Status", value: service.status.capitalized)]
+        if let user = service.user, !user.isEmpty { keyValues.append(KeyValueView(key: "User", value: user)) }
+        if let file = service.file, !file.isEmpty { keyValues.append(KeyValueView(key: "File", value: file)) }
+        addSection("Information", kvGrid(keyValues))
 
-        let buttons: [NSView] = s.isRunning
-            ? [actionButton("Stop", "stop.circle", #selector(stopService)),
-               actionButton("Restart", "arrow.clockwise.circle", #selector(restartService))]
-            : [actionButton("Start", "play.circle", #selector(startService))]
-        let row = NSStackView(views: buttons)
-        row.orientation = .horizontal; row.spacing = Spacing.sm
-        addSection("Actions", row)
+        actionBar.setLeading([])
+        if service.isRunning {
+            actionBar.setTrailing([
+                configuredAction(
+                    Buttons.secondary("Stop", target: self, action: #selector(stopService)),
+                    symbol: "stop.circle",
+                    subject: service.name
+                ),
+                configuredAction(
+                    Buttons.secondary("Restart", target: self, action: #selector(restartService)),
+                    symbol: "arrow.clockwise.circle",
+                    subject: service.name
+                )
+            ])
+        } else {
+            actionBar.setTrailing([
+                configuredAction(
+                    Buttons.primary("Start", target: self, action: #selector(startService)),
+                    symbol: "play.circle",
+                    subject: service.name
+                )
+            ])
+        }
+        actionBar.isHidden = false
     }
 
     // MARK: - Tap
 
-    private func showTap(_ t: TapInfo) {
+    private func showTap(_ tap: TapInfo) {
         emptyState.isHidden = true
         setChromeHidden(false)
-        tabs.isHidden = true
-        heroTile.setGlyph("arrow.triangle.branch", color: .systemBlue)
-        titleField.stringValue = t.name
-        subtitleField.stringValue = "Tap · \(t.packageCount) package\(t.packageCount == 1 ? "" : "s")"
+        setTabsHidden(true)
+        header.setBadge(symbol: "arrow.triangle.branch")
+        header.title = tap.name
+        header.setSummary("Tap · \(tap.packageCount) package\(tap.packageCount == 1 ? "" : "s")")
 
-        tapPackageRefs = t.packageRefs.sorted {
+        tapPackageRefs = tap.packageRefs.sorted {
             $0.token.localizedCaseInsensitiveCompare($1.token) == .orderedAscending
         }
         tapInstalledIDs = []
         tapPackagesLoaded = false
         tapPackagesError = ""
-        renderTapContent(t)
+        renderTapContent(tap)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = Result { try HomebrewService.installedPackages().filter { $0.tap == t.name } }
+            let result = Result { try HomebrewService.installedPackages().filter { $0.tap == tap.name } }
             DispatchQueue.main.async {
-                guard let self, case .tap(let current)? = self.selection, current.name == t.name else { return }
+                guard let self, case .tap(let current)? = self.selection, current.name == tap.name else { return }
                 switch result {
                 case .success(let packages):
                     self.tapInstalledIDs = Set(packages.map { self.tapPackageID($0.reference) })
@@ -393,20 +473,26 @@ final class HomebrewDetailViewController: NSViewController {
                 case .failure(let error):
                     self.tapPackagesError = error.localizedDescription
                 }
-                self.renderTapContent(t)
+                self.renderTapContent(tap)
             }
         }
     }
 
-    private func renderTapContent(_ t: TapInfo) {
+    private func renderTapContent(_ tap: TapInfo) {
         clearSections()
-        var kv: [KeyValueView] = [KeyValueView(key: "Official", value: (t.official ?? false) ? "Yes" : "No")]
-        if let remote = t.remote, !remote.isEmpty {
-            kv.append(KeyValueView(key: "Remote", value: shortHost(remote), link: remote.hasPrefix("http")) { [weak self] in self?.openHomepage() })
+        var keyValues: [KeyValueView] = [
+            KeyValueView(key: "Official", value: (tap.official ?? false) ? "Yes" : "No")
+        ]
+        if let remote = tap.remote, !remote.isEmpty {
+            keyValues.append(KeyValueView(
+                key: "Remote",
+                value: shortHost(remote),
+                link: remote.hasPrefix("http")
+            ) { [weak self] in self?.openHomepage() })
         }
-        kv.append(KeyValueView(key: "Formulae", value: "\(t.formulaNames?.count ?? 0)"))
-        kv.append(KeyValueView(key: "Casks", value: "\(t.caskTokens?.count ?? 0)"))
-        addSection("Information", kvGrid(kv))
+        keyValues.append(KeyValueView(key: "Formulae", value: "\(tap.formulaNames?.count ?? 0)"))
+        keyValues.append(KeyValueView(key: "Casks", value: "\(tap.caskTokens?.count ?? 0)"))
+        addSection("Information", kvGrid(keyValues))
 
         if !tapPackageRefs.isEmpty {
             tapPackagePicker.removeAllItems()
@@ -428,10 +514,19 @@ final class HomebrewDetailViewController: NSViewController {
             }
         }
 
-        if !(t.official ?? false) {
-            let row = NSStackView(views: [actionButton("Remove Tap", "trash", #selector(untap))])
-            row.orientation = .horizontal
-            addSection("Actions", row)
+        actionBar.setLeading([])
+        if tap.official ?? false {
+            actionBar.setTrailing([])
+            actionBar.isHidden = true
+        } else {
+            actionBar.setTrailing([
+                configuredAction(
+                    Buttons.destructive("Remove Tap", target: self, action: #selector(untap)),
+                    symbol: "trash",
+                    subject: tap.name
+                )
+            ])
+            actionBar.isHidden = false
         }
     }
 
@@ -440,49 +535,54 @@ final class HomebrewDetailViewController: NSViewController {
     @objc private func zapToggled(_ sender: NSButton) { zapEnabled = sender.state == .on }
 
     @objc private func installPackage() {
-        guard case .package(let p)? = selection else { return }
-        runMutation(title: "Installing \(p.displayName)…", arguments: HomebrewActions.installArgs(p.reference))
+        guard case .package(let package)? = selection else { return }
+        runMutation(
+            title: "Installing \(package.displayName)…",
+            arguments: HomebrewActions.installArgs(package.reference)
+        )
     }
 
     @objc private func upgrade() {
-        guard case .package(let p)? = selection else { return }
-        runMutation(title: "Upgrading \(p.displayName)…", plan: HomebrewActions.upgradePlan(p))
+        guard case .package(let package)? = selection else { return }
+        runMutation(title: "Upgrading \(package.displayName)…", plan: HomebrewActions.upgradePlan(package))
     }
 
     @objc private func pin() {
-        guard case .package(let p)? = selection else { return }
-        runQuiet(title: "Couldn't \(p.isPinned ? "unpin" : "pin")", arguments: HomebrewActions.pinArgs(p))
+        guard case .package(let package)? = selection else { return }
+        runQuiet(
+            title: "Couldn't \(package.isPinned ? "unpin" : "pin")",
+            arguments: HomebrewActions.pinArgs(package)
+        )
     }
 
     @objc private func uninstall() {
-        guard case .package(let p)? = selection else { return }
-        let zap = p.isCask && zapEnabled
+        guard case .package(let package)? = selection else { return }
+        let zap = package.isCask && zapEnabled
 
         if Preferences.shared.confirmBeforeDelete {
             let alert = NSAlert()
-            alert.messageText = "Uninstall “\(p.displayName)”?"
-            var info = p.isCask
+            alert.messageText = "Uninstall “\(package.displayName)”?"
+            var info = package.isCask
                 ? (zap ? "Removes the cask and every file it created (zap). This can't be undone here."
                        : "Removes the cask. Some related files may remain — tick “zap” to remove everything.")
                 : "Removes the formula via Homebrew."
             if !dependents.isEmpty {
-                info += "\n\n⚠️ Still required by: \(dependents.joined(separator: ", ")). Removing it may break those packages."
+                info += "\n\n⚠️ Still required by: \(dependents.joined(separator: ", ")). "
+                    + "Removing it may break those packages."
             }
             alert.informativeText = info
-            alert.addButton(withTitle: "Uninstall")
-            alert.addButton(withTitle: "Cancel")
-            if !dependents.isEmpty { alert.buttons.first?.hasDestructiveAction = true }
+            Buttons.addDestructiveConfirmation("Uninstall", to: alert)
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
 
-        let name = p.displayName
-        runMutation(title: "Uninstalling \(name)…", arguments: HomebrewActions.uninstallArgs(p, zap: zap)) {
-            TrashHistory.recordRemoval(origin: "Homebrew: \(name)", items: [p.token], bytes: 0, at: Date())
+        let name = package.displayName
+        runMutation(title: "Uninstalling \(name)…", arguments: HomebrewActions.uninstallArgs(package, zap: zap)) {
+            TrashHistory.recordRemoval(origin: "Homebrew: \(name)", items: [package.token], bytes: 0, at: Date())
         }
     }
 
-    @objc private func startService()   { serviceControl(.start) }
-    @objc private func stopService()    { serviceControl(.stop) }
+    @objc private func startService() { serviceControl(.start) }
+    @objc private func stopService() { serviceControl(.stop) }
     @objc private func restartService() { serviceControl(.restart) }
 
     @objc private func tapPackageSelectionChanged() { updateTapPackageButton() }
@@ -498,6 +598,8 @@ final class HomebrewDetailViewController: NSViewController {
         tapPackageButton.isEnabled = true
         let installed = tapInstalledIDs.contains(tapPackageID(tapPackageRefs[row]))
         tapPackageButton.title = installed ? "Uninstall" : "Install"
+        tapPackageButton.hasDestructiveAction = installed
+        tapPackageButton.keyEquivalent = ""
         tapPackageButton.image = NSImage(
             systemSymbolName: installed ? "trash" : "arrow.down.circle",
             accessibilityDescription: tapPackageButton.title
@@ -507,73 +609,72 @@ final class HomebrewDetailViewController: NSViewController {
     @objc private func manageTapPackage() {
         let row = tapPackagePicker.indexOfSelectedItem
         guard tapPackagesLoaded, tapPackageRefs.indices.contains(row) else { return }
-        let ref = tapPackageRefs[row]
-        let installed = tapInstalledIDs.contains(tapPackageID(ref))
+        let reference = tapPackageRefs[row]
+        let installed = tapInstalledIDs.contains(tapPackageID(reference))
         if installed, Preferences.shared.confirmBeforeDelete {
             let alert = NSAlert()
-            alert.messageText = "Uninstall \(ref.token)?"
-            alert.informativeText = ref.isCask
+            alert.messageText = "Uninstall \(reference.token)?"
+            alert.informativeText = reference.isCask
                 ? "This removes the cask through Homebrew. Related files may remain."
                 : "This removes the formula through Homebrew."
-            alert.addButton(withTitle: "Uninstall")
-            alert.addButton(withTitle: "Cancel")
-            alert.buttons.first?.hasDestructiveAction = true
+            Buttons.addDestructiveConfirmation("Uninstall", to: alert)
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
         let verb = installed ? "Uninstalling" : "Installing"
         let arguments = installed
-            ? HomebrewActions.uninstallArgs(ref, zap: false)
-            : HomebrewActions.installArgs(ref)
-        runMutation(title: "\(verb) \(ref.token)…", arguments: arguments)
+            ? HomebrewActions.uninstallArgs(reference, zap: false)
+            : HomebrewActions.installArgs(reference)
+        runMutation(title: "\(verb) \(reference.token)…", arguments: arguments)
     }
 
     private func serviceControl(_ action: HomebrewActions.ServiceAction) {
-        guard case .service(let s)? = selection else { return }
-        runQuiet(title: "Couldn't \(action.rawValue) service",
-                 arguments: HomebrewActions.serviceArgs(action, name: s.name))
+        guard case .service(let service)? = selection else { return }
+        runQuiet(
+            title: "Couldn't \(action.rawValue) service",
+            arguments: HomebrewActions.serviceArgs(action, name: service.name)
+        )
     }
 
-    private func tapPackageID(_ ref: HomebrewPackageRef) -> String {
-        "\(ref.kind.rawValue)-\(ref.token.split(separator: "/").last ?? Substring(ref.token))"
+    private func tapPackageID(_ reference: HomebrewPackageRef) -> String {
+        "\(reference.kind.rawValue)-\(reference.token.split(separator: "/").last ?? Substring(reference.token))"
     }
 
     @objc private func untap() {
-        guard case .tap(let t)? = selection else { return }
+        guard case .tap(let tap)? = selection else { return }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let result = Result {
-                try HomebrewService.installedPackages().filter { $0.tap == t.name }
+                try HomebrewService.installedPackages().filter { $0.tap == tap.name }
             }
             DispatchQueue.main.async {
-                guard let self, case .tap(let current)? = self.selection, current.name == t.name else { return }
+                guard let self, case .tap(let current)? = self.selection, current.name == tap.name else { return }
                 switch result {
                 case .failure(let error):
                     self.alert("Couldn't inspect tap", error.localizedDescription)
                 case .success(let installed) where !installed.isEmpty:
                     let names = installed.map(\.displayName).joined(separator: ", ")
-                    self.alert("Can't remove tap", "Uninstall these packages from \(t.name) first:\n\n\(names)")
+                    self.alert("Can't remove tap", "Uninstall these packages from \(tap.name) first:\n\n\(names)")
                 case .success:
-                    self.confirmUntap(t)
+                    self.confirmUntap(tap)
                 }
             }
         }
     }
 
-    private func confirmUntap(_ t: TapInfo) {
+    private func confirmUntap(_ tap: TapInfo) {
         let alert = NSAlert()
-        alert.messageText = "Remove tap “\(t.name)”?"
+        alert.messageText = "Remove tap “\(tap.name)”?"
         alert.informativeText = "Removes this repository from Homebrew. No installed packages from this tap were found."
-        alert.addButton(withTitle: "Remove Tap")
-        alert.addButton(withTitle: "Cancel")
+        Buttons.addDestructiveConfirmation("Remove Tap", to: alert)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        runQuiet(title: "Couldn't remove tap", arguments: HomebrewActions.untapArgs(t.name))
+        runQuiet(title: "Couldn't remove tap", arguments: HomebrewActions.untapArgs(tap.name))
     }
 
     @objc private func openHomepage() {
         let urlString: String?
         switch selection {
-        case .package(let p)?: urlString = p.homepage
-        case .tap(let t)?:     urlString = t.remote
-        default:              urlString = nil
+        case .package(let package)?: urlString = package.homepage
+        case .tap(let tap)?:         urlString = tap.remote
+        default:                     urlString = nil
         }
         guard let urlString, let url = URL(string: urlString) else { return }
         NSWorkspace.shared.open(url)
@@ -609,11 +710,11 @@ final class HomebrewDetailViewController: NSViewController {
     }
 
     private func addSection(_ title: String, _ body: NSView) {
-        let head = NSTextField(labelWithString: title)
-        head.font = Typography.semibold(.headline)
-        head.textColor = .labelColor
+        let heading = NSTextField(labelWithString: title)
+        heading.font = Typography.semibold(.headline)
+        heading.textColor = .labelColor
 
-        let container = NSStackView(views: [head, body])
+        let container = NSStackView(views: [heading, body])
         container.orientation = .vertical
         container.alignment = .leading
         container.spacing = Spacing.sm
@@ -624,12 +725,12 @@ final class HomebrewDetailViewController: NSViewController {
     }
 
     private func wrapLabel(_ text: String) -> NSTextField {
-        let l = NSTextField(wrappingLabelWithString: text)
-        l.font = Typography.subheadline
-        l.textColor = .secondaryLabelColor
-        l.isSelectable = true
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.font = Typography.subheadline
+        label.textColor = .secondaryLabelColor
+        label.isSelectable = true
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
     }
 
     private func warningLabel(_ text: String) -> NSTextField {
@@ -643,43 +744,50 @@ final class HomebrewDetailViewController: NSViewController {
     }
 
     private func monoLabel(_ text: String) -> NSTextField {
-        let l = NSTextField(wrappingLabelWithString: text)
-        l.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        l.textColor = .secondaryLabelColor
-        l.isSelectable = true
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        label.textColor = .secondaryLabelColor
+        label.isSelectable = true
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
     }
 
     private func actionButton(_ title: String, _ symbol: String, _ action: Selector) -> NSButton {
-        let b = NSButton(title: " \(title)", target: self, action: action)
-        b.bezelStyle = .rounded
-        b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
-        b.imagePosition = .imageLeading
-        b.setContentHuggingPriority(.required, for: .horizontal)
-        return b
+        configuredAction(Buttons.secondary(title, target: self, action: action), symbol: symbol)
+    }
+
+    /// - Parameter subject: what the action acts on. Without it VoiceOver announces
+    ///   a bare "Uninstall, button" with no idea which package is about to go.
+    private func configuredAction(_ button: NSButton, symbol: String, subject: String? = nil) -> NSButton {
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: button.title)
+        button.imagePosition = .imageLeading
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        if let subject, !subject.isEmpty {
+            button.setAccessibilityLabel("\(button.title) \(subject)")
+        }
+        return button
     }
 
     private func kvGrid(_ items: [KeyValueView]) -> NSView {
-        let col = NSStackView()
-        col.orientation = .vertical
-        col.alignment = .leading
-        col.spacing = Spacing.lg
-        col.translatesAutoresizingMaskIntoConstraints = false
-        var i = 0
-        while i < items.count {
-            let rowItems = Array(items[i ..< min(i + 2, items.count)])
+        let column = NSStackView()
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = Spacing.lg
+        column.translatesAutoresizingMaskIntoConstraints = false
+        var index = 0
+        while index < items.count {
+            let rowItems = Array(items[index ..< min(index + 2, items.count)])
             let row = NSStackView(views: rowItems)
             row.orientation = .horizontal
             row.alignment = .top
             row.distribution = .fillEqually
             row.spacing = Spacing.md
             row.translatesAutoresizingMaskIntoConstraints = false
-            col.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: col.widthAnchor).isActive = true
-            i += 2
+            column.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true
+            index += 2
         }
-        return col
+        return column
     }
 
     private func shortHost(_ urlString: String) -> String {
@@ -689,10 +797,10 @@ final class HomebrewDetailViewController: NSViewController {
     }
 
     private func alert(_ title: String, _ message: String) {
-        let a = NSAlert()
-        a.messageText = title
-        a.informativeText = message
-        a.addButton(withTitle: "OK")
-        a.runModal()
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 }

@@ -22,16 +22,16 @@ final class HomebrewAutomationViewController: NSViewController, NSTableViewDataS
     private lazy var applyButton = Buttons.primary("Apply", target: self, action: #selector(applyChanges))
 
     override func loadView() {
-        let title = NSTextField(labelWithString: "Automatic Homebrew Maintenance")
-        title.font = Typography.semibold(.headline)
-        let subtitle = NSTextField(wrappingLabelWithString: "Run Homebrew in the background on one or more schedules. A cask that needs administrator access may show a macOS password dialog at run time.")
+        // The toolbar title says "Auto Update"; this header only explains behavior.
+        let subtitle = NSTextField(wrappingLabelWithString: "Run Homebrew in the background on one or more schedules. "
+            + "A cask that needs administrator access may show a macOS password dialog at run time.")
         subtitle.font = Typography.footnote
         subtitle.textColor = .secondaryLabelColor
 
         statusLabel.font = Typography.footnote
         statusLabel.textColor = .secondaryLabelColor
 
-        let header = NSStackView(views: [title, subtitle, enabledCheck, statusLabel])
+        let header = NSStackView(views: [subtitle, enabledCheck, statusLabel])
         header.orientation = .vertical
         header.alignment = .leading
         header.spacing = Spacing.xs
