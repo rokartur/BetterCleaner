@@ -39,7 +39,11 @@ final class MainWindowController: NSWindowController {
         // the window controller just hosts the split.
         window.contentViewController = rootVC
         window.setFrameAutosaveName("BetterCleanerMainWindow")
-        window.center()
+        // Center only when no frame was saved yet (first launch); an
+        // unconditional center() here would discard the restored position.
+        if !window.setFrameUsingName("BetterCleanerMainWindow") {
+            window.center()
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
