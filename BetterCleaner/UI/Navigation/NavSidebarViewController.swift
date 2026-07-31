@@ -1,10 +1,7 @@
 import AppKit
 
-/// The app's primary navigation: a native source-list sidebar that lists every
-/// page grouped into Cleanup / Tools / System, laid out 1:1 with the BetterSettings
-/// tab list (9pt selection capsule, 32pt rows, accent-tinted SF Symbols, no
-/// gradient tiles) — with an optional trailing reclaimable size on the scannable
-/// pages.
+/// The app's primary navigation: a native source-list sidebar grouped into
+/// Cleanup / Tools / Homebrew / System, with optional reclaimable sizes.
 ///
 /// Selecting a row reports its id via `onSelect`. `selectRow(_:)` mirrors a
 /// programmatic page change (launch / drop / deep link) onto the list without
@@ -47,12 +44,9 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
         column.resizingMask = .autoresizingMask
         tableView.addTableColumn(column)
         tableView.headerView = nil
-        // Full-width cells + a custom row view (NavRowView) draw the rounded
-        // selection capsule ourselves, so the pill sits exactly 9pt from the edges
-        // and content padding is precise — instead of the wide default source-list
-        // inset. (BetterSettings does the same.)
-        tableView.style = .fullWidth
-        tableView.selectionHighlightStyle = .regular
+        // Native source-list rendering owns selection, focus, vibrancy, accent
+        // color, and Increased Contrast behavior.
+        tableView.style = .sourceList
         tableView.backgroundColor = .clear
         tableView.floatsGroupRows = false
         // Zero intercell spacing → tight rows like the BetterSettings tab list.
@@ -137,7 +131,7 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
     }
 
     private func rowIndex(of id: String) -> Int? {
-        rows.firstIndex { if case .section(let s) = $0 { return s.id == id }; return false }
+        rows.firstIndex { if case .section(let section) = $0 { return section.id == id }; return false }
     }
 
     private func applySelection() {
@@ -167,43 +161,35 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
         return false
     }
 
-    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-        let id = NSUserInterfaceItemIdentifier("NavRow")
-        if let reused = tableView.makeView(withIdentifier: id, owner: self) as? NavRowView { return reused }
-        let rv = NavRowView()
-        rv.identifier = id
-        return rv
-    }
-
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         switch rows[row] {
         case .header(let title):
             let cell = tableView.makeView(withIdentifier: Self.headerCellID, owner: self) as? NSTableCellView ?? {
-                let c = NSTableCellView()
-                c.identifier = Self.headerCellID
-                let tf = NSTextField(labelWithString: "")
-                tf.translatesAutoresizingMaskIntoConstraints = false
+                let cell = NSTableCellView()
+                cell.identifier = Self.headerCellID
+                let label = NSTextField(labelWithString: "")
+                label.translatesAutoresizingMaskIntoConstraints = false
                 // Finder sidebar group-header style: title-case, semibold, gray.
-                tf.font = Typography.semibold(.subheadline)
-                tf.textColor = .secondaryLabelColor
-                c.addSubview(tf)
-                c.textField = tf
+                label.font = Typography.semibold(.subheadline)
+                label.textColor = .secondaryLabelColor
+                cell.addSubview(label)
+                cell.textField = label
                 NSLayoutConstraint.activate([
-                    tf.leadingAnchor.constraint(equalTo: c.leadingAnchor, constant: Metrics.sidebarHeaderInset),
-                    tf.centerYAnchor.constraint(equalTo: c.centerYAnchor),
+                    label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: Metrics.sidebarHeaderInset),
+                    label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
                 ])
-                return c
+                return cell
             }()
             cell.textField?.stringValue = title
             return cell
 
-        case .section(let s):
+        case .section(let section):
             let cell = tableView.makeView(withIdentifier: NavCell.identifier, owner: self) as? NavCell ?? {
-                let c = NavCell(frame: .zero)
-                c.identifier = NavCell.identifier
-                return c
+                let cell = NavCell(frame: .zero)
+                cell.identifier = NavCell.identifier
+                return cell
             }()
-            cell.configure(symbol: s.icon, title: s.title, size: sizes[s.id], color: s.color)
+            cell.configure(symbol: section.icon, title: section.title, size: sizes[section.id])
             return cell
         }
     }
@@ -211,33 +197,8 @@ final class NavSidebarViewController: NSViewController, NSTableViewDataSource, N
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard !isProgrammaticSelection else { return }
         let row = tableView.selectedRow
-        guard row >= 0, row < rows.count, case .section(let s) = rows[row] else { return }
-        selectedID = s.id
-        onSelect?(s.id)
-    }
-}
-
-/// Draws the rounded selection capsule itself (like BetterSettings' SidebarRowView)
-/// so the pill sits a precise 9pt from the sidebar edges instead of the wider
-/// default source-list inset. Accent fill on the key window, gray otherwise.
-final class NavRowView: NSTableRowView {
-    private let inset = Metrics.sidebarRowPadding
-    private let cornerRadius = Metrics.sidebarSelectionRadius
-
-    override func drawSelection(in dirtyRect: NSRect) {
-        guard isSelected else { return }
-        let width = max(0, bounds.width - inset * 2)
-        guard width > 0, bounds.height > 0 else { return }
-        let rect = NSRect(x: inset, y: 0, width: width, height: bounds.height)
-        let path = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
-        (isEmphasized ? NSColor.controlAccentColor : .unemphasizedSelectedContentBackgroundColor).setFill()
-        path.fill()
-    }
-
-    /// Force the cell's `backgroundStyle` to `.emphasized` only on the accent
-    /// (key-window) capsule, so the glyph + text invert to white there and stay
-    /// accent/label on the muted unemphasized capsule.
-    override var interiorBackgroundStyle: NSView.BackgroundStyle {
-        (isSelected && isEmphasized) ? .emphasized : .normal
+        guard row >= 0, row < rows.count, case .section(let section) = rows[row] else { return }
+        selectedID = section.id
+        onSelect?(section.id)
     }
 }

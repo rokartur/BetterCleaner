@@ -1,11 +1,20 @@
 import AppKit
 
-/// One inline pill spec. `color == nil` renders a subtle gray tag ("dep", a source
-/// domain); a non-nil color renders a filled colored pill ("brew", "GitHub",
-/// "Running", "Official").
+/// One inline chip spec. `color == nil` renders the neutral taxonomy chip ("dep",
+/// "Formula"); a non-nil color renders a state chip ("Running", "Official").
+///
+/// State chips must carry a `symbol` — the tint alone can't survive grayscale,
+/// Increased Contrast, or colour-blind vision. Taxonomy chips carry none.
 struct PillSpec {
     let text: String
     let color: NSColor?
+    var symbol: String?
+
+    init(text: String, color: NSColor?, symbol: String? = nil) {
+        self.text = text
+        self.color = color
+        self.symbol = symbol
+    }
 }
 
 /// A row model for the Homebrew master list, styled after TapHouse: a leading icon
@@ -13,7 +22,9 @@ struct PillSpec {
 /// description line, and a trailing version.
 struct HomebrewRowModel {
     enum Leading {
-        case glyph(symbol: String, color: NSColor)
+        /// A plain template SF Symbol. No tint argument: a decorative colour on the
+        /// row icon duplicates what the row's state chip already says.
+        case glyph(symbol: String)
         case appIcon(NSImage)
     }
     let leading: Leading
@@ -29,7 +40,7 @@ struct HomebrewRowModel {
 final class HomebrewRowCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("HomebrewRow")
 
-    private let tile = IconTileView(size: 40, corner: 9)
+    private let tile = NSImageView()
     private let titleField = NSTextField(labelWithString: "")
     private let updateBadge = NSImageView()
     private let pillsRow = NSStackView()
@@ -41,8 +52,20 @@ final class HomebrewRowCell: NSTableCellView {
         super.init(frame: .zero)
         identifier = Self.identifier
 
-        titleField.font = Typography.semibold(.title3)
+        tile.imageScaling = .scaleProportionallyUpOrDown
+        tile.wantsLayer = true
+        tile.layer?.cornerCurve = .continuous
+        tile.layer?.masksToBounds = true
+        tile.setAccessibilityElement(false)
+        tile.setContentHuggingPriority(.required, for: .horizontal)
+
+        // Body weight, like every other list row in the app. A title3 semibold
+        // name turned this list into a page of headings instead of a dense list.
+        titleField.font = Typography.body
         titleField.lineBreakMode = .byTruncatingTail
+        // The name gives way before the version does. A name clipped to "Microsoft
+        // Visual Studio…" is still recognisable; a version clipped to "1.1…" is
+        // noise. Still well above the description, which yields first.
         titleField.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
         updateBadge.image = NSImage(systemSymbolName: "arrow.up.circle.fill", accessibilityDescription: "Update available")
@@ -56,20 +79,21 @@ final class HomebrewRowCell: NSTableCellView {
         pillsRow.alignment = .centerY
         pillsRow.spacing = 5
         pillsRow.setContentHuggingPriority(.required, for: .horizontal)
-        pillsRow.setContentCompressionResistancePriority(.required, for: .horizontal)
+        // Pills are annotations, so they yield before the name does.
+        pillsRow.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        subtitleField.font = Typography.subheadline
+        subtitleField.font = Typography.caption
         subtitleField.textColor = .secondaryLabelColor
         subtitleField.lineBreakMode = .byTruncatingTail
+        subtitleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        versionField.font = Typography.monospacedDigit(.subheadline)
+        versionField.font = Typography.monospacedDigit(.caption1)
         versionField.textColor = .secondaryLabelColor
         versionField.alignment = .right
         versionField.lineBreakMode = .byTruncatingTail
         versionField.setContentHuggingPriority(.required, for: .horizontal)
-
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
+        // Never truncated: it's short, and a partial version answers nothing.
+        versionField.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         let titleSpacer = NSView()
         titleSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -84,92 +108,109 @@ final class HomebrewRowCell: NSTableCellView {
         textStack.spacing = 2
         textStack.translatesAutoresizingMaskIntoConstraints = false
 
-        for v in [tile, textStack, versionField, separator] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(v)
+        for child in [tile, textStack, versionField] {
+            child.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(child)
         }
         NSLayoutConstraint.activate([
             tile.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Spacing.md),
             tile.centerYAnchor.constraint(equalTo: centerYAnchor),
+            tile.widthAnchor.constraint(equalToConstant: Metrics.listIconSize),
+            tile.heightAnchor.constraint(equalToConstant: Metrics.listIconSize),
 
             textStack.leadingAnchor.constraint(equalTo: tile.trailingAnchor, constant: Spacing.md),
             textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
             textStack.trailingAnchor.constraint(lessThanOrEqualTo: versionField.leadingAnchor, constant: -Spacing.sm),
             titleRow.trailingAnchor.constraint(equalTo: textStack.trailingAnchor),
 
-            versionField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Spacing.lg),
+            versionField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Spacing.md),
             versionField.centerYAnchor.constraint(equalTo: centerYAnchor),
-            versionField.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
-
-            separator.leadingAnchor.constraint(equalTo: textStack.leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Spacing.lg),
-            separator.bottomAnchor.constraint(equalTo: bottomAnchor),
+            // A version is an annotation, not the row's subject. Capped so a long
+            // one can't take half the column away from the name and description.
+            versionField.widthAnchor.constraint(lessThanOrEqualToConstant: 96),
         ])
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
-    /// White text on the blue selection capsule; normal colors otherwise.
+    /// Follow the row's background: AppKit sets `.emphasized` on the native inset
+    /// selection, and the system selected-text colors keep contrast correct in
+    /// light, dark, Increased Contrast, and when the window loses focus.
     override var backgroundStyle: NSView.BackgroundStyle {
         didSet {
             let emphasized = backgroundStyle == .emphasized
-            titleField.textColor = emphasized ? .white : .labelColor
-            subtitleField.textColor = emphasized ? NSColor.white.withAlphaComponent(0.85) : .secondaryLabelColor
-            versionField.textColor = emphasized ? NSColor.white.withAlphaComponent(0.85) : .secondaryLabelColor
-            separator.isHidden = emphasized
+            // No alpha on the selected-text colour: fading a semantic colour is
+            // exactly what Increased Contrast asks the system not to do. AppKit's
+            // two selected-text colours already encode the primary/secondary pair.
+            titleField.textColor = emphasized ? .alternateSelectedControlTextColor : .labelColor
+            let secondary: NSColor = emphasized ? .alternateSelectedControlTextColor : .secondaryLabelColor
+            subtitleField.textColor = secondary
+            versionField.textColor = secondary
         }
     }
 
-    func configure(_ m: HomebrewRowModel) {
-        switch m.leading {
-        case .glyph(let symbol, let color): tile.setGlyph(symbol, color: color)
-        case .appIcon(let image):           tile.setAppIcon(image)
+    func configure(_ model: HomebrewRowModel) {
+        switch model.leading {
+        case .glyph(let symbol):
+            let config = NSImage.SymbolConfiguration(pointSize: Metrics.listIconSize * 0.68, weight: .regular)
+            let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(config)
+            image?.isTemplate = true
+            tile.image = image
+            tile.contentTintColor = .secondaryLabelColor
+            tile.layer?.cornerRadius = 0
+        case .appIcon(let image):
+            image.isTemplate = false
+            tile.image = image
+            tile.contentTintColor = nil
+            tile.layer?.cornerRadius = 5
         }
-        titleField.stringValue = m.title
-        updateBadge.isHidden = !m.updateAvailable
+        titleField.stringValue = model.title
+        updateBadge.isHidden = !model.updateAvailable
 
         pillsRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        for pill in m.pills {
-            if let color = pill.color {
-                let p = StatusPill()
-                p.set(text: pill.text, color: color)
-                pillsRow.addArrangedSubview(p)
-            } else {
-                pillsRow.addArrangedSubview(TagPill(pill.text))
-            }
+        for pill in model.pills {
+            let chip = StatusChip()
+            chip.configure(text: pill.text, symbol: pill.symbol, tint: pill.color)
+            pillsRow.addArrangedSubview(chip)
         }
 
-        subtitleField.stringValue = m.subtitle
-        subtitleField.isHidden = m.subtitle.isEmpty
-        versionField.stringValue = m.version
-        versionField.isHidden = m.version.isEmpty
+        subtitleField.stringValue = model.subtitle
+        subtitleField.isHidden = model.subtitle.isEmpty
+        versionField.stringValue = Self.shortVersion(model.version)
+        versionField.isHidden = model.version.isEmpty
+        // The untrimmed string stays one hover away; the detail pane's Information
+        // grid always shows it in full.
+        versionField.toolTip = model.version.isEmpty ? nil : model.version
+
+        // One spoken phrase per row instead of several stray labels. The chips are
+        // part of the row's meaning ("Running", "dep"), so they're spoken too.
+        let spoken = ([model.title, model.version]
+            + model.pills.map(\.text)
+            + [model.subtitle, model.updateAvailable ? "Update available" : ""])
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+        setAccessibilityLabel(spoken)
+    }
+
+    /// Homebrew cask versions are often `version,build` ("1.1.16,20260425132215").
+    /// The build id changes no decision and doubles the column's width, so the row
+    /// shows the part a user recognises and keeps the rest in the tooltip.
+    static func shortVersion(_ version: String) -> String {
+        // Keep empty subsequences: without them a leading comma (",20260425") would
+        // surface the build id *as* the version, which is worse than showing the
+        // raw string. An empty prefix means there's nothing better to show.
+        let head = version.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+        return head.isEmpty ? version : String(head)
     }
 
     /// Back-compat path for the search / adopt sheets, which pass a plain image
     /// and an optional colored badge.
     func configure(icon: NSImage?, title: String, subtitle: String, badgeText: String?, badgeColor: NSColor) {
-        let leading: HomebrewRowModel.Leading = icon.map { .appIcon($0) } ?? .glyph(symbol: "shippingbox", color: .systemGray)
+        let leading: HomebrewRowModel.Leading = icon.map { .appIcon($0) } ?? .glyph(symbol: "shippingbox")
         var pills: [PillSpec] = []
         if let badgeText, !badgeText.isEmpty { pills.append(PillSpec(text: badgeText, color: badgeColor)) }
         configure(HomebrewRowModel(leading: leading, title: title, pills: pills, subtitle: subtitle))
-    }
-}
-
-/// Table row view that paints the selection as a rounded accent capsule (TapHouse
-/// style) instead of the system bar, and stays vivid even when the table isn't the
-/// first responder.
-final class HomebrewRowView: NSTableRowView {
-    override var isEmphasized: Bool {
-        get { true }
-        set {}
-    }
-
-    override func drawSelection(in dirtyRect: NSRect) {
-        guard isSelected else { return }
-        let rect = bounds.insetBy(dx: 6, dy: 1)
-        let path = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
-        NSColor.controlAccentColor.setFill()
-        path.fill()
     }
 }
 
@@ -181,7 +222,9 @@ final class HomebrewHeaderCell: NSTableCellView {
     init() {
         super.init(frame: .zero)
         identifier = Self.identifier
-        label.font = Typography.semibold(.headline)
+        // Matches the nav sidebar's group headers, so both lists read as one family
+        // instead of two different apps stitched together.
+        label.font = Typography.semibold(.subheadline)
         label.textColor = .secondaryLabelColor
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)

@@ -11,15 +11,27 @@ import AppKit
 final class HomebrewMaintenanceMenu: NSObject {
     private weak var presenter: NSViewController?
     private let onChanged: () -> Void
+    /// Routes to a full-width Homebrew page (Auto Update / Maintenance). These used
+    /// to be sidebar rows; they're maintenance settings, so they belong beside the
+    /// other maintenance commands rather than in the app's primary navigation.
+    private let onOpenPage: (String) -> Void
     private static var retained: HomebrewMaintenanceMenu?
 
-    private init(presenter: NSViewController, onChanged: @escaping () -> Void) {
+    private init(presenter: NSViewController,
+                 onChanged: @escaping () -> Void,
+                 onOpenPage: @escaping (String) -> Void) {
         self.presenter = presenter
         self.onChanged = onChanged
+        self.onOpenPage = onOpenPage
     }
 
-    static func present(from anchor: NSButton, presenter: NSViewController, onChanged: @escaping () -> Void) {
-        let controller = HomebrewMaintenanceMenu(presenter: presenter, onChanged: onChanged)
+    static func present(from anchor: NSButton,
+                        presenter: NSViewController,
+                        onOpenPage: @escaping (String) -> Void,
+                        onChanged: @escaping () -> Void) {
+        let controller = HomebrewMaintenanceMenu(presenter: presenter,
+                                                 onChanged: onChanged,
+                                                 onOpenPage: onOpenPage)
         retained = controller
         controller.show(from: anchor)
     }
@@ -36,10 +48,18 @@ final class HomebrewMaintenanceMenu: NSObject {
         add(menu, "Import Brewfile…", #selector(importBrewfile))
         menu.addItem(.separator())
         add(menu, "Adopt Installed Apps…", #selector(adoptApps))
+        menu.addItem(.separator())
+        add(menu, "Automatic Updates…", #selector(openAutoUpdate))
+        add(menu, "Maintenance & Health…", #selector(openMaintenance))
 
         let origin = NSPoint(x: 0, y: anchor.bounds.height + 4)
         menu.popUp(positioning: nil, at: origin, in: anchor)
     }
+
+    // MARK: - Full-width pages
+
+    @objc private func openAutoUpdate() { onOpenPage("brew.autoupdate") }
+    @objc private func openMaintenance() { onOpenPage("brew.maintenance") }
 
     private func add(_ menu: NSMenu, _ title: String, _ action: Selector) {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
@@ -148,8 +168,7 @@ final class HomebrewMaintenanceMenu: NSObject {
                     alert.runModal()
                     return
                 }
-                alert.addButton(withTitle: confirm)
-                alert.addButton(withTitle: "Cancel")
+                Buttons.addDestructiveConfirmation(confirm, to: alert)
                 guard alert.runModal() == .alertFirstButtonReturn else { return }
                 self.runMutation(runTitle, args)
             }
