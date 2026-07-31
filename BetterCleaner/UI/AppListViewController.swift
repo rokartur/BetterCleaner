@@ -24,6 +24,7 @@ final class AppListViewController: NSViewController, NSTableViewDataSource, NSTa
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
     private let emptyState = EmptyStateView(symbol: "square.grid.2x2")
+    private let loadingView = LoadingStateView()
 
     private var allApps: [InstalledApp] = []
     private var rows: [Row] = []
@@ -72,6 +73,8 @@ final class AppListViewController: NSViewController, NSTableViewDataSource, NSTa
         sortButton.imagePosition = .imageOnly
         sortButton.setButtonType(.momentaryPushIn)
         sortButton.toolTip = "Sort the app list"
+        sortButton.setAccessibilityLabel("Sort apps")
+        sortButton.setAccessibilityHelp("Choose how the app list is sorted")
         sortButton.target = self
         sortButton.action = #selector(sortClicked)
         sortButton.setContentHuggingPriority(.required, for: .horizontal)
@@ -81,6 +84,8 @@ final class AppListViewController: NSViewController, NSTableViewDataSource, NSTa
         refreshButton.imagePosition = .imageOnly
         refreshButton.setButtonType(.momentaryPushIn)
         refreshButton.toolTip = "Refresh the app list"
+        refreshButton.setAccessibilityLabel("Refresh apps")
+        refreshButton.setAccessibilityHelp("Scan the Applications folders again")
         refreshButton.target = self
         refreshButton.action = #selector(refreshClicked)
         refreshButton.setContentHuggingPriority(.required, for: .horizontal)
@@ -101,6 +106,9 @@ final class AppListViewController: NSViewController, NSTableViewDataSource, NSTa
 
         emptyState.isHidden = true
         container.addSubview(emptyState)
+        container.addSubview(loadingView)
+        scrollView.isHidden = true
+        loadingView.startIndeterminate("Loading applications…")
         NSLayoutConstraint.activate([
             topBar.topAnchor.constraint(equalTo: container.topAnchor, constant: Spacing.xs),
             topBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -114,6 +122,10 @@ final class AppListViewController: NSViewController, NSTableViewDataSource, NSTa
             emptyState.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             emptyState.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             emptyState.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            loadingView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            loadingView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            loadingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            loadingView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
         view = container
     }
@@ -154,6 +166,8 @@ final class AppListViewController: NSViewController, NSTableViewDataSource, NSTa
     // MARK: - Public API
 
     func reload(with apps: [InstalledApp]) {
+        loadingView.stop()
+        scrollView.isHidden = false
         allApps = apps
         sizes.removeAll()
         applyFilterAndSort()
@@ -165,8 +179,8 @@ final class AppListViewController: NSViewController, NSTableViewDataSource, NSTa
         applyFilterAndSort()
     }
 
-    func setSortBySize(_ on: Bool) {
-        sortBySize = on
+    func setSortBySize(_ enabled: Bool) {
+        sortBySize = enabled
         applyFilterAndSort()
     }
 
@@ -189,7 +203,9 @@ final class AppListViewController: NSViewController, NSTableViewDataSource, NSTa
 
         let sortInSection: ([InstalledApp]) -> [InstalledApp] = { [self] apps in
             if sortBySize {
-                return apps.sorted { (sizes[$0.url] ?? 0, $0.name.lowercased()) > (sizes[$1.url] ?? 0, $1.name.lowercased()) }
+                return apps.sorted {
+                    (sizes[$0.url] ?? 0, $0.name.lowercased()) > (sizes[$1.url] ?? 0, $1.name.lowercased())
+                }
             }
             return apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
@@ -225,7 +241,7 @@ final class AppListViewController: NSViewController, NSTableViewDataSource, NSTa
 
     private func appRowIndex(of app: InstalledApp) -> Int? {
         rows.firstIndex {
-            if case .app(let a) = $0 { return a == app }
+            if case .app(let candidate) = $0 { return candidate == app }
             return false
         }
     }
@@ -280,30 +296,28 @@ final class AppListViewController: NSViewController, NSTableViewDataSource, NSTa
         switch rows[row] {
         case .header(let title):
             let cell = tableView.makeView(withIdentifier: Self.headerCellID, owner: self) as? NSTableCellView ?? {
-                let c = NSTableCellView()
-                c.identifier = Self.headerCellID
-                let tf = NSTextField(labelWithString: "")
-                tf.translatesAutoresizingMaskIntoConstraints = false
-                tf.font = Typography.semibold(.caption1)
-                tf.textColor = .secondaryLabelColor
-                c.addSubview(tf)
-                c.textField = tf
+                let cell = NSTableCellView()
+                cell.identifier = Self.headerCellID
+                let label = NSTextField(labelWithString: "")
+                label.translatesAutoresizingMaskIntoConstraints = false
+                label.font = Typography.semibold(.subheadline)
+                label.textColor = .secondaryLabelColor
+                cell.addSubview(label)
+                cell.textField = label
                 NSLayoutConstraint.activate([
-                    // Indent to the app-row text edge and center vertically so the
-                    // group label lines up with rows like a Finder/Music source list.
-                    tf.leadingAnchor.constraint(equalTo: c.leadingAnchor, constant: Spacing.sm),
-                    tf.centerYAnchor.constraint(equalTo: c.centerYAnchor),
+                    label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: Spacing.sm),
+                    label.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
                 ])
-                return c
+                return cell
             }()
-            cell.textField?.stringValue = title.uppercased()
+            cell.textField?.stringValue = title
             return cell
 
         case .app(let app):
             let cell = tableView.makeView(withIdentifier: AppCell.identifier, owner: self) as? AppCell ?? {
-                let c = AppCell(frame: .zero)
-                c.identifier = AppCell.identifier
-                return c
+                let cell = AppCell(frame: .zero)
+                cell.identifier = AppCell.identifier
+                return cell
             }()
             cell.configure(app: app, size: sizes[app.url])
             return cell

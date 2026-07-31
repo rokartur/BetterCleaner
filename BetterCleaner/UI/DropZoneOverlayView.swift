@@ -24,12 +24,20 @@ final class DropZoneOverlayView: NSView {
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
 
+        iconView.setAccessibilityElement(false)
+
         let stack = NSStackView(views: [iconView, label])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = Spacing.md
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
+
+        // The overlay only exists while a drag is in flight, so its appearance is
+        // itself the state change. Announce it as one phrase instead of leaving a
+        // sighted-only dashed border to carry the message.
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Drop an app here to uninstall it")
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),

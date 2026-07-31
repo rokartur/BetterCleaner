@@ -27,14 +27,14 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     /// the plain `Trasher` path. Also gates the per-app "Prune Languages" button.
     var uninstallContext: InstalledApp? {
         didSet {
-            pruneLanguagesButton.isHidden = (uninstallContext == nil)
+            pruneLanguagesButton.isHidden = uninstallContext == nil || allNodes.isEmpty
             // A per-app list runs the *full* uninstall (quit/unload/TCC/receipts/
             // Keychain), so the destructive button must say "Uninstall…" — the
             // plain "Move to Trash" label dangerously understates it.
             trashButton.title = (uninstallContext != nil) ? "Uninstall…" : "Move to Trash"
-            // Applications detail shows the real app icon as the header badge;
-            // junk/orphan/dev lists keep their monochrome section badge (set via
-            // `setSectionBadge`), so only override when an app is in context.
+            // Applications detail shows the real app icon as the header badge; the
+            // toolbar's window title carries the page name, so section lists show
+            // no header identity at all.
             if let app = uninstallContext {
                 header.setBadge(appIcon: IconCache.icon(forPath: app.url.path))
             } else if oldValue != nil {
@@ -43,10 +43,12 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         }
     }
 
-    /// The section's monochrome badge (Junk / Orphaned / Development), set by the
-    /// owning wrapper from `NavCatalog` so the header matches the sidebar.
-    func setSectionBadge(symbol: String) {
-        header.setBadge(symbol: symbol)
+    /// Empty every header line; the pane's orientation comes from the toolbar's
+    /// window title (and the empty-state copy), not a repeated in-content header.
+    private func clearHeader() {
+        header.title = ""
+        header.summary = ""
+        header.detail = ""
     }
 
     /// Add an "Assign to App…" row context-menu item that calls `handler` with the
@@ -147,6 +149,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     private var searchQuery = ""
     /// Whether this list offers a search box (opt-in via `enableSearch`).
     private var searchEnabled = false
+    private var waitingForFullDiskAccess = false
 
     private let header = PageHeaderView()
     private let searchField = NSSearchField()
@@ -181,12 +184,12 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         outlineView.indentationPerLevel = 14
         outlineView.autoresizesOutlineColumn = false
         outlineView.usesAutomaticRowHeights = false
-        // Single-click anywhere on a row (or double-click, or right-click → Reveal
-        // in Finder) shows the file in Finder. The checkbox is an NSButton, so it
-        // consumes its own clicks and never triggers the reveal.
+        // Selection stays native and keyboard-navigable. Double-click or Return
+        // reveals the selected item; checkbox clicks continue to toggle selection.
         outlineView.target = self
-        outlineView.action = #selector(revealClickedRow)
         outlineView.doubleAction = #selector(revealClickedRow)
+        outlineView.onReturn = { [weak self] in self?.revealClickedRow() }
+        outlineView.setAccessibilityLabel("Scan Results")
         let menu = NSMenu()
         let revealItem = NSMenuItem(title: "Reveal in Finder", action: #selector(revealClickedRow), keyEquivalent: "")
         revealItem.target = self
@@ -203,6 +206,10 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         // outline reads directly on the content background.
 
         // Empty state + shared loading overlay (EmptyStateView self-styles).
+        // Born hidden, like the legend and search field: nothing has configured its
+        // copy yet, and a visible-by-default panel renders a bare, textless glyph
+        // until a caller sets one.
+        emptyState.isHidden = true
 
         // Footer (glass action bar). Buttons are built via the shared `Buttons`
         // factory so Trash reads as destructive (red) and the others as neutral.
@@ -240,7 +247,9 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         topStack.spacing = Spacing.sm
         topStack.translatesAutoresizingMaskIntoConstraints = false
 
-        for v in [topStack, scrollView, footer, emptyState, loadingView] { root.addSubview(v) }
+        for childView in [topStack, scrollView, footer, emptyState, loadingView] {
+            root.addSubview(childView)
+        }
 
         NSLayoutConstraint.activate([
             // This pane sits right of the nav sidebar (no traffic lights over it), so
@@ -279,30 +288,42 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        // A section's scan can finish while this detail view is still off-screen:
-        // the launch "Scan all" pass (MainWindowController.scheduleInitialScan)
-        // populates Junk / Orphaned / Development before the user ever opens those
-        // pages. Those off-screen `showResults` calls set `nodes` but reloaded the
-        // outline against a not-yet-wired dataSource (loadView sets it), so the rows
-        // never built — and `startIfNeeded` won't re-scan once `hasScanned` is set.
-        // Reload now that the dataSource is live so the cached results appear instead
-        // of a blank pane or the old app-list placeholder. No placeholder default is
-        // shown here: the Applications page sets its own via MainSplitViewController,
-        // and section pages drive their own loading/results state.
-        outlineView.reloadData()
-        for node in nodes { outlineView.expandItem(node) }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidBecomeActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        // A launch scan can finish while this view is off-screen. Reconcile every
+        // state now that loadView has wired the outline and created the controls;
+        // otherwise load-time defaults can hide search/legend or disable a valid CTA.
+        searchField.isHidden = !searchEnabled || allNodes.isEmpty
+        reloadFiltered()
+        updateFooter()
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func applicationDidBecomeActive() {
+        guard waitingForFullDiskAccess, FullDiskAccess.refresh() else { return }
+        waitingForFullDiskAccess = false
+        onRescanRequested?()
     }
 
     // MARK: - Public API
 
-    /// Show a loading state. `determinate` swaps the spinning indicator for a
-    /// progress bar + percent that `updateProgress(_:)` drives.
-    func showLoading(_ message: String, determinate: Bool = false) {
+    /// Show a loading state. `determinate` swaps the spinner for a progress bar
+    /// and percent that `updateProgress(_:)` drives.
+    func showLoading(_ message: String, title: String? = nil, determinate: Bool = false) {
+        waitingForFullDiskAccess = false
         allNodes = []
         nodes = []
         outlineView.reloadData()
-        header.title = ""
+        // A per-app scan names the app; a section scan shows no header — the
+        // loading message and the toolbar title carry the orientation.
+        header.title = title ?? ""
         header.summary = ""
+        header.detail = ""
         legend.isHidden = true
         searchField.isHidden = true
         emptyState.isHidden = true
@@ -323,17 +344,30 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         loadingView.stop()
     }
 
-    func showResults(_ sections: [ScanSection], title: String, subtitle: String) {
+    /// - Parameters:
+    ///   - subtitle: plain lead-in ("128 items · ").
+    ///   - metric: the emphasized reclaimable size the user decides against.
+    ///   - detail: optional footnote line (e.g. an app's bundle id).
+    func showResults(_ sections: [ScanSection], title: String, subtitle: String, metric: String? = nil, detail: String = "") {
+        waitingForFullDiskAccess = false
         hideProgress()
         allNodes = sections.map { SectionNode(category: $0.category, items: $0.items) }
-        header.title = title
-        header.summary = subtitle
+        // Only an app detail titles the header (icon + name = the selection).
+        // Section results keep just the metrics line; the page name lives in
+        // the toolbar.
+        header.title = (uninstallContext != nil) ? title : ""
+        header.setSummary(subtitle, metric: metric)
+        header.detail = detail
         // Empty-result copy; the search-filtered "no matches" copy is set in
         // `reloadFiltered` only when results exist but the query hides them all.
         if allNodes.isEmpty {
-            emptyState.configure(symbol: "checkmark.circle",
-                                 title: "No leftover files found.",
-                                 message: "This app didn't leave anything behind.")
+            emptyState.configure(
+                symbol: "checkmark.circle",
+                title: "Nothing to Clean",
+                message: uninstallContext == nil
+                    ? "No removable items were found in this section."
+                    : "\(title) has no related files to remove."
+            )
         }
         // Show the box once there's something to filter; keep any existing query.
         searchField.isHidden = !searchEnabled || allNodes.isEmpty
@@ -350,15 +384,62 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     }
 
     func showPlaceholder(_ message: String) {
+        waitingForFullDiskAccess = false
         hideProgress()
         allNodes = []
         nodes = []
         outlineView.reloadData()
-        header.title = ""
-        header.summary = ""
+        clearHeader()
         legend.isHidden = true
         searchField.isHidden = true
-        emptyState.configure(symbol: "macwindow", title: message)
+        // A quiet hint, not a second hero: the app list beside this pane is where
+        // the user acts, so this must not compete with it for attention.
+        emptyState.configure(symbol: "macwindow", title: "No App Selected", message: message, tone: .hint)
+        emptyState.isHidden = false
+        updateFooter()
+    }
+
+    func showFullDiskAccessRequired() {
+        hideProgress()
+        waitingForFullDiskAccess = true
+        allNodes = []
+        nodes = []
+        outlineView.reloadData()
+        // With an app in context the header keeps its identity + a status line;
+        // otherwise the big empty-state panel below says everything once.
+        if let app = uninstallContext {
+            header.title = app.name
+            header.setStatus("Full Disk Access required", symbol: "lock.fill")
+            header.detail = ""
+        } else {
+            clearHeader()
+        }
+        legend.isHidden = true
+        searchField.isHidden = true
+        emptyState.configure(
+            symbol: "lock.shield",
+            title: "Full Disk Access Required",
+            message: "macOS keeps app caches and support files hidden until you grant access — scans stay empty without it.",
+            actionTitle: "Open Privacy Settings",
+            action: {
+                FullDiskAccess.provokeRegistration()
+                FullDiskAccess.openSettings()
+            }
+        )
+        emptyState.isHidden = false
+        updateFooter()
+    }
+
+    func showCompletion(title: String, message: String) {
+        waitingForFullDiskAccess = false
+        hideProgress()
+        allNodes = []
+        nodes = []
+        outlineView.reloadData()
+        clearHeader()
+        legend.isHidden = true
+        searchField.isHidden = true
+        emptyState.configure(symbol: "checkmark.circle", title: title, message: message)
         emptyState.isHidden = false
         updateFooter()
     }
@@ -368,32 +449,37 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     @objc private func searchChanged() {
         searchQuery = searchField.stringValue
         reloadFiltered()
+        // The filter changes how much of the selection is off-screen, which the
+        // footer now discloses — so it has to be recomputed on every keystroke.
+        updateFooter()
     }
 
     /// Rebuild `nodes` from `allNodes` honoring the current query, then reload the
     /// outline and reconcile the legend / empty-state. Selection and totals live
     /// on `allNodes`, so filtering is purely visual.
     private func reloadFiltered() {
-        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if q.isEmpty {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if query.isEmpty {
             nodes = allNodes
         } else {
             nodes = allNodes.compactMap { node in
                 // A category-name match shows the whole section; otherwise filter
                 // to the rows whose name or path contains the query.
-                if node.category.lowercased().contains(q) {
+                if node.category.lowercased().contains(query) {
                     return SectionNode(category: node.category, items: node.items)
                 }
                 let matched = node.items.filter {
-                    $0.displayName.lowercased().contains(q) || $0.path.lowercased().contains(q)
+                    $0.displayName.lowercased().contains(query) || $0.path.lowercased().contains(query)
                 }
                 return matched.isEmpty ? nil : SectionNode(category: node.category, items: matched)
             }
         }
 
         if allNodes.isEmpty {
-            // Caller already configured the empty-state copy.
-            emptyState.isHidden = false
+            // Never stack an empty state on top of a scan in progress: "nothing
+            // here" is not yet true, and reloadFiltered runs from viewDidLoad, which
+            // can land after a scan has already started.
+            emptyState.isHidden = !loadingView.isHidden
             legend.isHidden = true
         } else if nodes.isEmpty {
             // Results exist but the query hid them all.
@@ -404,6 +490,11 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
             legend.isHidden = true
         } else {
             emptyState.isHidden = true
+            // Counts come from the full result set, not the filtered view: the
+            // legend describes what a trash would act on, which search never changes.
+            let items = allNodes.flatMap { $0.items }
+            let safe = items.filter { $0.isAutoSelectable }.count
+            legend.setCounts(safe: safe, review: items.count - safe)
             legend.isHidden = false
         }
 
@@ -432,13 +523,14 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         if allNodes.isEmpty {
             // Clear the stale "N items · size" so it doesn't sit above "All clear".
             header.summary = ""
+            header.detail = ""
             searchField.isHidden = true
             emptyState.configure(symbol: "checkmark.circle", title: "All clear",
                                  message: "Everything you removed was moved to the Trash.")
         } else {
             // Refresh the subtitle totals the old full-rescan path used to set.
             let bytes = allNodes.flatMap { $0.items }.reduce(0) { $0 + $1.size }
-            header.summary = "\(after) item\(after == 1 ? "" : "s") · \(FileSize.string(bytes))"
+            header.setSummary("\(after) item\(after == 1 ? "" : "s") · ", metric: FileSize.string(bytes))
         }
         // reloadFiltered reconciles the outline, legend and empty-state honoring
         // any active search query.
@@ -454,7 +546,23 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
 
     private var selectedItems: [FileItem] { allNodes.flatMap { $0.items }.filter { $0.isSelected } }
 
+    /// Selected items the user can actually see right now (i.e. that survived the
+    /// active search). Equals `selectedItems.count` when nothing is filtered.
+    private var visibleSelectedCount: Int {
+        nodes.flatMap { $0.items }.filter { $0.isSelected }.count
+    }
+
     private func updateFooter() {
+        let hasItems = !allNodes.isEmpty
+        selectAllButton.isHidden = !hasItems
+        trashButton.isHidden = !hasItems
+        pruneLanguagesButton.isHidden = uninstallContext == nil || !hasItems
+
+        // With no results there is no decision to make, so the whole footer band
+        // collapses (ActionBarView hides itself once every control is hidden)
+        // instead of leaving a stray caption on a permission or empty screen.
+        footerLabel.isHidden = !hasItems
+
         let selected = selectedItems
         let bytes = selected.reduce(0) { $0 + $1.size }
         if selected.isEmpty {
@@ -464,11 +572,23 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
             footerSizeLabel.isHidden = true
             footerSizeLabel.stringValue = ""
         } else {
-            footerLabel.stringValue = "\(selected.count) selected ·"
-            footerSizeLabel.isHidden = false
+            // Selection deliberately survives filtering, so a search can leave the
+            // button acting on far more than the one row on screen. Say how many are
+            // off-screen rather than letting the visible list imply the scope.
+            let hidden = selected.count - visibleSelectedCount
+            footerLabel.stringValue = hidden > 0
+                ? "\(selected.count) selected (\(hidden) hidden by search) ·"
+                : "\(selected.count) selected ·"
+            footerSizeLabel.isHidden = !hasItems
             footerSizeLabel.stringValue = FileSize.string(bytes)
         }
         trashButton.isEnabled = !selected.isEmpty
+        // Name the consequence on the button itself, so the count is readable at
+        // the moment of the click and not only in the footer caption. The per-app
+        // pane keeps "Uninstall…" — it does far more than move files.
+        if uninstallContext == nil {
+            trashButton.title = selected.isEmpty ? "Move to Trash" : "Move \(selected.count) to Trash"
+        }
         // "Select Safe" only ever toggles auto-selectable (green-dot) rows;
         // ask-first / low-confidence items stay manual. The honest label tells the
         // user exactly that — to grab everything, they use the section checkbox.
@@ -508,7 +628,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     /// Reveal the double/right-clicked row in Finder. For a leaf it selects the
     /// file/folder; for a collapsed group it opens the containing directory.
     @objc private func revealClickedRow() {
-        let row = outlineView.clickedRow
+        let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
         guard row >= 0, let item = outlineView.item(atRow: row) else { return }
         let url: URL?
         switch item {
@@ -538,7 +658,8 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     /// instead of attributing. Groups and section headers carry no single file, so
     /// a right-click on one falls through to the checked set.
     private func assignTargets() -> [URL] {
-        let clicked = outlineView.item(atRow: outlineView.clickedRow) as? FileItem
+        let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
+        let clicked = outlineView.item(atRow: row) as? FileItem
         let checked = allNodes.flatMap { $0.items }.filter { $0.isSelected }
 
         let targets: [FileItem]
@@ -598,9 +719,10 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
 
         let alert = NSAlert()
         alert.messageText = "Prune languages from \(app.name)?"
-        alert.informativeText = "Remove \(items.count) language folder\(items.count == 1 ? "" : "s") · \(FileSize.string(bytes)). Your preferred languages are kept. Items go to the Trash (restorable)."
-        alert.addButton(withTitle: "Prune")
-        alert.addButton(withTitle: "Cancel")
+        alert.informativeText = "Remove \(items.count) language folder\(items.count == 1 ? "" : "s") · "
+            + "\(FileSize.string(bytes)). Your preferred languages are kept. "
+            + "Items go to the Trash (restorable)."
+        Buttons.addDestructiveConfirmation("Prune", to: alert)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
         // Off the main thread — a root-owned language folder would otherwise block
@@ -642,8 +764,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
             let alert = NSAlert()
             alert.messageText = "Move \(selected.count) item\(selected.count == 1 ? "" : "s") to the Trash?"
             alert.informativeText = "Total size: \(FileSize.string(bytes)). Items can be restored from the Trash."
-            alert.addButton(withTitle: "Move to Trash")
-            alert.addButton(withTitle: "Cancel")
+            Buttons.addDestructiveConfirmation("Move to Trash", to: alert)
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
 
@@ -690,8 +811,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
             let alert = NSAlert()
             alert.messageText = "Completely uninstall \(app.name)?"
             alert.informativeText = uninstallDisclosure(selected: selected, bytes: bytes, options: options)
-            alert.addButton(withTitle: "Uninstall")
-            alert.addButton(withTitle: "Cancel")
+            Buttons.addDestructiveConfirmation("Uninstall", to: alert)
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
 
@@ -700,6 +820,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
 
         header.title = ""
         header.summary = ""
+        header.detail = ""
         loadingView.startIndeterminate("Uninstalling \(app.name)…")
         trashButton.isEnabled = false
         selectAllButton.isEnabled = false
@@ -758,7 +879,8 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
         if item == nil { return nodes[index] }
         if let node = item as? SectionNode { return node.entries[index] }
-        return (item as! GroupNode).items[index]
+        if let group = item as? GroupNode { return group.items[index] }
+        preconditionFailure("Unexpected outline item")
     }
 
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
@@ -776,13 +898,14 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
         if let node = item as? SectionNode {
             let cell = outlineView.makeView(withIdentifier: SectionCellView.identifier, owner: self) as? SectionCellView ?? {
-                let c = SectionCellView()
-                c.identifier = SectionCellView.identifier
-                return c
+                let newCell = SectionCellView()
+                newCell.identifier = SectionCellView.identifier
+                return newCell
             }()
             let checked = !node.items.isEmpty && node.items.allSatisfy { $0.isSelected }
             cell.configure(title: node.category,
-                           detail: "\(node.items.count) · \(FileSize.string(node.totalSize))",
+                           detail: "\(node.items.count)",
+                           size: FileSize.string(node.totalSize),
                            checked: checked,
                            enabled: !node.items.isEmpty,
                            allSafe: node.allSafe)
@@ -802,12 +925,14 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
 
         if let group = item as? GroupNode {
             let cell = outlineView.makeView(withIdentifier: GroupCellView.identifier, owner: self) as? GroupCellView ?? {
-                let c = GroupCellView()
-                c.identifier = GroupCellView.identifier
-                return c
+                let newCell = GroupCellView()
+                newCell.identifier = GroupCellView.identifier
+                return newCell
             }()
-            cell.configure(title: group.title,
-                           detail: "\(group.items.count) items · \(FileSize.string(group.totalSize))",
+            // Count rides with the title; the size stays alone in the fixed size
+            // column so group rows line up with the file rows under them.
+            cell.configure(title: "\(group.title) (\(group.items.count))",
+                           detail: FileSize.string(group.totalSize),
                            checked: group.allSelected,
                            allSafe: group.allSafe)
             cell.onToggle = { [weak self] on in
@@ -819,13 +944,13 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
             return cell
         }
 
-        let item = item as! FileItem
+        guard let fileItem = item as? FileItem else { return nil }
         let cell = outlineView.makeView(withIdentifier: FileCell.identifier, owner: self) as? FileCell ?? {
-            let c = FileCell()
-            c.identifier = FileCell.identifier
-            return c
+            let newCell = FileCell()
+            newCell.identifier = FileCell.identifier
+            return newCell
         }()
-        cell.configure(item: item)
+        cell.configure(item: fileItem)
         cell.onToggle = { [weak self] in
             // Refresh so any enclosing group checkbox reflects the new state.
             self?.reloadPreservingExpansion()
@@ -835,7 +960,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     }
 
     func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
-        false
+        true
     }
 }
 
@@ -844,17 +969,21 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
 /// zero-duration animation context here makes both programmatic and interactive
 /// toggling snap open/closed instantly.
 final class NoAnimationOutlineView: NSOutlineView {
+    var onReturn: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36 || event.keyCode == 76 {
+            onReturn?()
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+
     override func expandItem(_ item: Any?, expandChildren: Bool) {
-        NSAnimationContext.beginGrouping()
-        NSAnimationContext.current.duration = 0
-        super.expandItem(item, expandChildren: expandChildren)
-        NSAnimationContext.endGrouping()
+        Motion.withoutAnimation { super.expandItem(item, expandChildren: expandChildren) }
     }
 
     override func collapseItem(_ item: Any?, collapseChildren: Bool) {
-        NSAnimationContext.beginGrouping()
-        NSAnimationContext.current.duration = 0
-        super.collapseItem(item, collapseChildren: collapseChildren)
-        NSAnimationContext.endGrouping()
+        Motion.withoutAnimation { super.collapseItem(item, collapseChildren: collapseChildren) }
     }
 }
