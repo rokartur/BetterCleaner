@@ -40,21 +40,33 @@ final class LoadingStateView: NSView {
         bar.controlSize = .regular
         bar.minValue = 0
         bar.maxValue = 1
+        bar.isHidden = true
 
         percentLabel.font = Typography.monospacedDigit(.subheadline, weight: .medium)
         percentLabel.textColor = .tertiaryLabelColor
         percentLabel.alignment = .center
+        percentLabel.isHidden = true
 
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = Spacing.md
         stack.translatesAutoresizingMaskIntoConstraints = false
-        for v in [spinner, messageLabel, bar, percentLabel] { stack.addArrangedSubview(v) }
+        for view in [spinner, messageLabel, bar, percentLabel] { stack.addArrangedSubview(view) }
         addSubview(stack)
 
+        // Same optical centre as EmptyStateView (42% of pane height), so a pane
+        // doesn't visibly shift its content upward as loading gives way to results
+        // or to an empty state.
+        let opticalCenter = NSLayoutConstraint(
+            item: stack, attribute: .centerY,
+            relatedBy: .equal,
+            toItem: self, attribute: .bottom,
+            multiplier: 0.42, constant: 0
+        )
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            opticalCenter,
+            stack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: Spacing.lg),
             stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Spacing.xl),
             stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Spacing.xl),
             bar.widthAnchor.constraint(equalToConstant: 220),
@@ -64,12 +76,14 @@ final class LoadingStateView: NSView {
 
     // MARK: - API
 
-    /// Animated barber-pole bar + spinner for scans whose total isn't known.
+    /// A single native spinner for work whose total isn't known.
     func startIndeterminate(_ message: String) {
         messageLabel.stringValue = message
-        bar.isIndeterminate = true
-        bar.startAnimation(nil)
+        messageLabel.setAccessibilityLabel(message)
+        bar.stopAnimation(nil)
+        bar.isHidden = true
         percentLabel.isHidden = true
+        spinner.isHidden = false
         spinner.startAnimation(nil)
         isHidden = false
     }
@@ -77,12 +91,15 @@ final class LoadingStateView: NSView {
     /// 0–100% fill + percent for scans that report fractional progress.
     func startDeterminate(_ message: String) {
         messageLabel.stringValue = message
+        messageLabel.setAccessibilityLabel(message)
+        spinner.stopAnimation(nil)
+        spinner.isHidden = true
         bar.stopAnimation(nil)
+        bar.isHidden = false
         bar.isIndeterminate = false
         bar.doubleValue = 0
         percentLabel.stringValue = "0%"
         percentLabel.isHidden = false
-        spinner.startAnimation(nil)
         isHidden = false
     }
 
@@ -96,17 +113,18 @@ final class LoadingStateView: NSView {
     func update(_ fraction: Double) {
         guard !isHidden, !bar.isIndeterminate else { return }
         let clamped = max(0, min(1, fraction))
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.25
-            ctx.allowsImplicitAnimation = true
-            bar.animator().doubleValue = clamped
-        }
-        percentLabel.stringValue = "\(Int((clamped * 100).rounded()))%"
+        let percent = Int((clamped * 100).rounded())
+        Motion.animate { [bar] in bar.animator().doubleValue = clamped }
+        percentLabel.stringValue = "\(percent)%"
+        bar.setAccessibilityValue(percent)
     }
 
     func stop() {
         spinner.stopAnimation(nil)
         bar.stopAnimation(nil)
+        spinner.isHidden = false
+        bar.isHidden = true
+        percentLabel.isHidden = true
         isHidden = true
     }
 }

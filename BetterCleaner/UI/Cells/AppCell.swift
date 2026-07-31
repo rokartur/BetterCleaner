@@ -32,6 +32,7 @@ final class AppCell: NSTableCellView {
         sizeField.setContentHuggingPriority(.required, for: .horizontal)
         sizeField.setContentCompressionResistancePriority(.required, for: .horizontal)
 
+        iconView.setAccessibilityElement(false)
         addSubview(iconView)
         addSubview(nameField)
         addSubview(sizeField)
@@ -63,5 +64,10 @@ final class AppCell: NSTableCellView {
             sizeField.stringValue = ""
             sizeField.isHidden = true
         }
+        // One spoken phrase per row, like every other list cell in the app.
+        // Without it VoiceOver reads the name and the size as two stray labels.
+        setAccessibilityLabel(
+            sizeField.isHidden ? app.name : "\(app.name), \(sizeField.stringValue)"
+        )
     }
 }
