@@ -129,8 +129,9 @@ enum HomebrewService {
     /// Native Homebrew description search. Section headers retain formula/cask kind,
     /// avoiding the ambiguous token-only result returned by a combined `brew search`.
     static func searchWithDescriptions(_ query: String) throws -> [HomebrewPackageRef: String] {
+        // A leading "-" would reach brew as a flag (e.g. `--eval-all`), not a query.
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [:] }
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("-") else { return [:] }
         do {
             return parseDescriptionSearch(try run(["search", "--desc", trimmed]).stdout)
         } catch let error as HomebrewServiceError {
@@ -163,8 +164,9 @@ enum HomebrewService {
     }
 
     static func search(_ query: String, kind: HomebrewPackage.Kind) throws -> [HomebrewPackageRef] {
+        // A leading "-" would reach brew as a flag (e.g. `--eval-all`), not a query.
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("-") else { return [] }
         let flag = kind == .cask ? "--cask" : "--formula"
         do {
             return parseNames(try run(["search", flag, trimmed]).stdout)

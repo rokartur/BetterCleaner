@@ -135,6 +135,13 @@ import Testing
         #expect(HomebrewService.isNoSearchResults("Error: No formulae or casks found for foo."))
     }
 
+    @Test func flagLikeSearchQueriesNeverReachBrew() throws {
+        // Would otherwise be parsed as brew flags (worst case `--eval-all`).
+        #expect(try HomebrewService.search("--eval-all", kind: .formula).isEmpty)
+        #expect(try HomebrewService.search("  -f", kind: .cask).isEmpty)
+        #expect(try HomebrewService.searchWithDescriptions("-desc").isEmpty)
+    }
+
     private static let tapsJSON = """
     [
       {

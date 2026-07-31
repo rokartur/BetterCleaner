@@ -559,7 +559,10 @@ final class HomebrewDetailViewController: NSViewController {
         guard case .package(let package)? = selection else { return }
         let zap = package.isCask && zapEnabled
 
-        if Preferences.shared.confirmBeforeDelete {
+        // The confirmBeforeDelete preference covers restorable trash deletes. A zap
+        // is irreversible and bypasses the restore net, and the "still required by"
+        // warning is spec-promised — both always confirm, regardless of the pref.
+        if Preferences.shared.confirmBeforeDelete || zap || !dependents.isEmpty {
             let alert = NSAlert()
             alert.messageText = "Uninstall “\(package.displayName)”?"
             var info = package.isCask

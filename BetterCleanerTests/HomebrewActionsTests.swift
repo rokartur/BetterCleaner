@@ -28,13 +28,15 @@ import Foundation
     @Test func upgradeArgs() throws {
         let (formula, cask) = try packages()
         #expect(HomebrewActions.upgradeArgs(formula) == ["upgrade", "wget"])
-        #expect(HomebrewActions.upgradeArgs(cask) == ["upgrade", "--cask", "firefox"])
+        // --greedy must match the `outdated --greedy` detection, or auto-updating
+        // casks we just flagged as outdated would be silently skipped by brew.
+        #expect(HomebrewActions.upgradeArgs(cask) == ["upgrade", "--cask", "--greedy", "firefox"])
     }
 
     @Test func upgradePlanUsesOneRequiredStepForUnpinnedPackages() throws {
         let (formula, cask) = try packages()
         #expect(HomebrewActions.upgradePlan(formula).steps == [.required(["upgrade", "wget"])])
-        #expect(HomebrewActions.upgradePlan(cask).steps == [.required(["upgrade", "--cask", "firefox"])])
+        #expect(HomebrewActions.upgradePlan(cask).steps == [.required(["upgrade", "--cask", "--greedy", "firefox"])])
     }
 
     @Test func upgradePlanAlwaysRepinsPinnedPackages() throws {
@@ -46,7 +48,7 @@ import Foundation
         ])
         #expect(HomebrewActions.upgradePlan(cask).steps == [
             .required(["unpin", "--cask", "firefox"]),
-            .required(["upgrade", "--cask", "firefox"]),
+            .required(["upgrade", "--cask", "--greedy", "firefox"]),
             .finally(["pin", "--cask", "firefox"]),
         ])
     }
@@ -58,7 +60,7 @@ import Foundation
 
     @Test func mutationsUseUnambiguousTapToken() throws {
         let cask = try caskPackage()
-        #expect(HomebrewActions.upgradeArgs(cask) == ["upgrade", "--cask", "custom/tools/visual-studio-code"])
+        #expect(HomebrewActions.upgradeArgs(cask) == ["upgrade", "--cask", "--greedy", "custom/tools/visual-studio-code"])
         #expect(HomebrewActions.uninstallArgs(cask, zap: false) == ["uninstall", "--cask", "custom/tools/visual-studio-code"])
         #expect(HomebrewActions.pinArgs(cask) == ["pin", "--cask", "custom/tools/visual-studio-code"])
     }

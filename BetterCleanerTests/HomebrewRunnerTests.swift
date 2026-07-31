@@ -44,4 +44,21 @@ import Testing
         #expect(!success)
         #expect(try String(contentsOf: log, encoding: .utf8) == "AF")
     }
+
+    @Test func everyLogLineArrivesBeforeCompletion() async throws {
+        // The trailing chunk has no newline, so it is only flushed at pipe EOF —
+        // completion must still come after it, never between termination and EOF.
+        let plan = HomebrewCommandPlan(arguments: ["-c", "printf 'first\\nlast-no-newline'"])
+        let runner = HomebrewRunner(executablePath: "/bin/sh", environment: ProcessInfo.processInfo.environment)
+
+        var lines: [String] = []
+        let (success, linesAtCompletion) = await withCheckedContinuation { continuation in
+            runner.run(plan, onLine: { lines.append($0) }) { success in
+                continuation.resume(returning: (success, lines))
+            }
+        }
+
+        #expect(success)
+        #expect(linesAtCompletion == ["first", "last-no-newline"])
+    }
 }

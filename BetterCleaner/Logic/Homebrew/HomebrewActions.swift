@@ -55,10 +55,12 @@ enum HomebrewActions {
         return args
     }
 
-    /// `brew upgrade [--cask] <token>`.
+    /// `brew upgrade [--cask --greedy] <token>`. Outdated detection runs
+    /// `brew outdated --greedy`, so upgrades must pass `--greedy` too or brew
+    /// silently skips auto-updating / version-:latest casks we just flagged.
     static func upgradeArgs(_ pkg: HomebrewPackage) -> [String] {
         var args = ["upgrade"]
-        if pkg.isCask { args.append("--cask") }
+        if pkg.isCask { args += ["--cask", "--greedy"] }
         args.append(pkg.commandToken)
         return args
     }

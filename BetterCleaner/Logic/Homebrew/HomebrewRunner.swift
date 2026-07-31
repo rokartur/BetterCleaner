@@ -105,6 +105,25 @@ final class HomebrewRunner {
 
         // Accumulate partial reads and emit only whole lines. `buffer` is touched
         // solely inside this serialized readability handler, so no extra locking.
+        // Completion must not race the log: the process can exit while its last
+        // lines still sit in the pipe, so wait for BOTH termination and reader EOF
+        // before reporting done. `finishReader` is one-shot so EOF and the
+        // post-termination grace below can both call it safely.
+        let group = DispatchGroup()
+        let readerLock = NSLock()
+        var readerDone = false
+        func finishReader() {
+            readerLock.lock()
+            let first = !readerDone
+            readerDone = true
+            readerLock.unlock()
+            guard first else { return }
+            pipe.fileHandleForReading.readabilityHandler = nil
+            group.leave()
+        }
+        group.enter()   // left by finishReader (EOF or grace)
+        group.enter()   // left on termination (or launch failure)
+
         var buffer = Data()
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
@@ -113,7 +132,7 @@ final class HomebrewRunner {
                     DispatchQueue.main.async { onLine(line) }
                 }
                 buffer.removeAll()
-                handle.readabilityHandler = nil
+                finishReader()
                 return
             }
             buffer.append(chunk)
@@ -125,10 +144,16 @@ final class HomebrewRunner {
             }
         }
 
+        var exitStatus: Int32 = -1
         process.terminationHandler = { [weak self] proc in
             self?.clearProcess(proc)
-            completion(proc.terminationStatus == 0)
+            exitStatus = proc.terminationStatus
+            group.leave()
+            // ponytail: 2s grace — a grandchild inheriting the pipe's write end
+            // would otherwise hold EOF (and completion) open forever.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { finishReader() }
         }
+        group.notify(queue: .main) { completion(exitStatus == 0) }
 
         lock.lock()
         self.process = process
@@ -139,12 +164,12 @@ final class HomebrewRunner {
             try process.run()
             if isCancelled && !isFinalizer && process.isRunning { process.terminate() }
         } catch {
-            pipe.fileHandleForReading.readabilityHandler = nil
+            finishReader()
             clearProcess(process)
             DispatchQueue.main.async {
                 onLine("Failed to launch brew: \(error.localizedDescription)")
             }
-            completion(false)
+            group.leave()   // terminationHandler will never fire for a failed launch
         }
     }
 
