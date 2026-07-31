@@ -205,59 +205,59 @@ struct HomebrewPackage {
     /// Stable identity for table reloads / selection restoration.
     var id: String { "\(kind.rawValue)-\(commandToken)" }
 
-    init(formula f: BrewFormula) {
+    init(formula: BrewFormula) {
         kind = .formula
-        token = f.name
-        commandToken = f.fullName.flatMap { $0.isEmpty ? nil : $0 } ?? f.name
-        displayName = f.name
-        description = f.desc ?? ""
-        homepage = f.homepage ?? ""
-        installedVersion = f.installed.last?.version ?? ""
-        latestVersion = f.versions.stable ?? ""
+        token = formula.name
+        commandToken = formula.fullName.flatMap { $0.isEmpty ? nil : $0 } ?? formula.name
+        displayName = formula.name
+        description = formula.desc ?? ""
+        homepage = formula.homepage ?? ""
+        installedVersion = formula.installed.last?.version ?? ""
+        latestVersion = formula.versions.stable ?? ""
         latestBundleVersion = ""
-        isOutdated = f.outdated
-        isPinned = f.pinned
-        installedOnRequest = f.installed.last?.installedOnRequest ?? true
+        isOutdated = formula.outdated
+        isPinned = formula.pinned
+        installedOnRequest = formula.installed.last?.installedOnRequest ?? true
         autoUpdates = false
-        tap = f.tap ?? ""
-        dependencies = f.dependencies ?? []
+        tap = formula.tap ?? ""
+        dependencies = formula.dependencies ?? []
         appArtifacts = []
-        caveats = f.caveats ?? ""
-        license = f.license ?? ""
-        isDeprecated = f.deprecated ?? false
-        deprecationReason = f.deprecationReason ?? ""
-        isDisabled = f.disabled ?? false
-        disableReason = f.disableReason ?? ""
-        requirements = f.requirements?.map(\.text) ?? []
-        hasService = f.service != nil
+        caveats = formula.caveats ?? ""
+        license = formula.license ?? ""
+        isDeprecated = formula.deprecated ?? false
+        deprecationReason = formula.deprecationReason ?? ""
+        isDisabled = formula.disabled ?? false
+        disableReason = formula.disableReason ?? ""
+        requirements = formula.requirements?.map(\.text) ?? []
+        hasService = formula.service != nil
     }
 
-    init(cask c: BrewCask) {
+    init(cask: BrewCask) {
         kind = .cask
-        token = c.token
-        commandToken = c.fullToken.flatMap { $0.isEmpty ? nil : $0 } ?? c.token
-        displayName = c.name.first ?? c.token
-        description = c.desc ?? ""
-        homepage = c.homepage ?? ""
-        installedVersion = c.installed ?? ""
-        latestVersion = c.version ?? ""
-        latestBundleVersion = c.bundleVersion ?? ""
-        isOutdated = c.outdated
-        isPinned = c.pinned ?? false
+        token = cask.token
+        commandToken = cask.fullToken.flatMap { $0.isEmpty ? nil : $0 } ?? cask.token
+        displayName = cask.name.first ?? cask.token
+        description = cask.desc ?? ""
+        homepage = cask.homepage ?? ""
+        installedVersion = cask.installed ?? ""
+        latestVersion = cask.version ?? ""
+        latestBundleVersion = cask.bundleVersion ?? ""
+        isOutdated = cask.outdated
+        isPinned = cask.pinned ?? false
         installedOnRequest = true
-        autoUpdates = c.autoUpdates ?? false
-        tap = c.tap ?? ""
-        dependencies = c.dependencies?.formula ?? []
-        appArtifacts = c.artifacts?.flatMap { artifact in
+        autoUpdates = cask.autoUpdates ?? false
+        tap = cask.tap ?? ""
+        dependencies = cask.dependencies?.formula ?? []
+        appArtifacts = cask.artifacts?.flatMap { artifact in
             artifact.app?.map { AppArtifact(source: $0, target: artifact.target) } ?? []
         } ?? []
-        caveats = c.caveats ?? ""
-        license = c.license ?? ""
-        isDeprecated = c.deprecated ?? false
-        deprecationReason = c.deprecationReason ?? ""
-        isDisabled = c.disabled ?? false
-        disableReason = c.disableReason ?? ""
-        requirements = c.dependencies?.macOS?
+        caveats = cask.caveats ?? ""
+        license = cask.license ?? ""
+        isDeprecated = cask.deprecated ?? false
+        deprecationReason = cask.deprecationReason ?? ""
+        isDisabled = cask.disabled ?? false
+        disableReason = cask.disableReason ?? ""
+        requirements = cask.dependencies?.macOS?
             .sorted { $0.key < $1.key }
             .map { "macOS \($0.key) \($0.value.joined(separator: ", "))" } ?? []
         hasService = false
@@ -335,6 +335,16 @@ enum HomebrewCategory: Int, CaseIterable {
         case .available: return "Available"
         case .services:  return "Services"
         case .taps:      return "Taps"
+        }
+    }
+
+    /// Empty-state message when the category has no rows at all (vs. no matches).
+    var emptyMessage: String {
+        switch self {
+        case .installed: return "Nothing is installed via Homebrew yet."
+        case .available: return "Homebrew returned no available formulae or casks."
+        case .services:  return "No Homebrew services are configured."
+        case .taps:      return "No third-party taps are added."
         }
     }
 }

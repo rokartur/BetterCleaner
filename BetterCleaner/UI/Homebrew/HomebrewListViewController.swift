@@ -363,20 +363,7 @@ final class HomebrewListViewController: NSViewController, NSTableViewDataSource,
             }
         }
         pkgs.sort { packageOrder($0.displayName, $1.displayName) }
-        let casks = pkgs.filter(\.isCask)
-        let formulae = pkgs.filter { !$0.isCask }
-        let showHeaders = (kindFilter == .all)
-
-        var rows: [Row] = []
-        if !casks.isEmpty {
-            if showHeaders { rows.append(.header("Casks  \(casks.count)")) }
-            rows += casks.map(Row.package)
-        }
-        if !formulae.isEmpty {
-            if showHeaders { rows.append(.header("Formulae  \(formulae.count)")) }
-            rows += formulae.map(Row.package)
-        }
-        return rows
+        return groupedRows(pkgs, isCask: \.isCask, row: Row.package)
     }
 
     private func buildReferenceRows(_ source: [HomebrewPackageRef],
@@ -389,19 +376,25 @@ final class HomebrewListViewController: NSViewController, NSTableViewDataSource,
             }
         }
         refs.sort { packageOrder($0.token, $1.token) }
-        let casks = refs.filter(\.isCask)
-        let formulae = refs.filter { !$0.isCask }
+        return groupedRows(refs, isCask: \.isCask) { .reference($0, description: descriptions[$0] ?? "") }
+    }
+
+    /// Shared tail of both list builders: casks first, formulae second, each
+    /// under a count header when both kinds are visible.
+    private func groupedRows<T>(_ items: [T], isCask: (T) -> Bool, row: (T) -> Row) -> [Row] {
+        let casks = items.filter(isCask)
+        let formulae = items.filter { !isCask($0) }
         let showHeaders = kindFilter == .all
-        var result: [Row] = []
+        var rows: [Row] = []
         if !casks.isEmpty {
-            if showHeaders { result.append(.header("Casks  \(casks.count)")) }
-            result += casks.map { .reference($0, description: descriptions[$0] ?? "") }
+            if showHeaders { rows.append(.header("Casks  \(casks.count)")) }
+            rows += casks.map(row)
         }
         if !formulae.isEmpty {
-            if showHeaders { result.append(.header("Formulae  \(formulae.count)")) }
-            result += formulae.map { .reference($0, description: descriptions[$0] ?? "") }
+            if showHeaders { rows.append(.header("Formulae  \(formulae.count)")) }
+            rows += formulae.map(row)
         }
-        return result
+        return rows
     }
 
     private func packageOrder(_ lhs: String, _ rhs: String) -> Bool {
@@ -424,17 +417,8 @@ final class HomebrewListViewController: NSViewController, NSTableViewDataSource,
             emptyState.configure(
                 symbol: sourceEmpty ? "cup.and.saucer" : "magnifyingglass",
                 title: sourceEmpty ? "No \(category.title.lowercased())" : "No matches",
-                message: sourceEmpty ? emptyMessage(for: category) : ""
+                message: sourceEmpty ? category.emptyMessage : ""
             )
-        }
-    }
-
-    private func emptyMessage(for category: HomebrewCategory) -> String {
-        switch category {
-        case .installed: return "Nothing is installed via Homebrew yet."
-        case .available: return "Homebrew returned no available formulae or casks."
-        case .services:  return "No Homebrew services are configured."
-        case .taps:      return "No third-party taps are added."
         }
     }
 

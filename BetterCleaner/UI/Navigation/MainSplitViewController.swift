@@ -95,7 +95,9 @@ final class MainSplitViewController: NSSplitViewController {
         contentListItem.canCollapse = false
         addSplitViewItem(contentListItem)
 
-        // Column 3 — the detail content, swapped per page.
+        // Column 3 — the detail content, swapped per page. Its minimum is the
+        // remainder of the 880pt window minimum (Metrics.minWindow) after the
+        // sidebar (200) and master-list (280) minimums and the split dividers.
         let contentItem = NSSplitViewItem(viewController: container)
         contentItem.minimumThickness = 391
         addSplitViewItem(contentItem)

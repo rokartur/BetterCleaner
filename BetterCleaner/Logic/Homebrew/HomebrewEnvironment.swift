@@ -2,9 +2,15 @@ import Foundation
 
 /// Locates the `brew` executable and builds the environment used for every invocation.
 ///
-/// `brew` is ALWAYS run as the logged-in user — never through `PrivilegedRunner` /
-/// `sudo`. Homebrew refuses to run as root and elevates on its own (via its own
-/// prompt) when a cask payload actually needs administrator rights.
+/// `brew` is ALWAYS launched as the logged-in user — never through
+/// `PrivilegedRunner` / `sudo`; Homebrew refuses to run as root. When a cask
+/// payload itself needs administrator rights, brew's own internal `sudo` has no
+/// terminal to prompt on, so `SUDO_ASKPASS` points at the bundled
+/// `homebrew-sudo-askpass` script: an osascript dialog with hidden input that
+/// asks the user for their password and hands it to `sudo`. That script is the
+/// app's only privilege-escalation path for brew; the password is never seen or
+/// stored by BetterCleaner itself. Pass `includeAskpass: false` for read-only
+/// invocations that must never elevate.
 enum HomebrewEnvironment {
     /// Candidate absolute paths to the `brew` binary, most-likely first.
     private static let candidates = [
