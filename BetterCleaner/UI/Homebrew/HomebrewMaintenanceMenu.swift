@@ -4,9 +4,6 @@ import AppKit
 /// upgrade-all, cleanup, autoremove, Brewfile import/export, and adopt apps.
 /// Long operations run in the streaming progress sheet; cleanup/autoremove
 /// first show a dry-run preview the user confirms.
-///
-/// Retained for the lifetime of the menu interaction via a static reference so any
-/// asynchronous action survives the `popUp` returning.
 @MainActor
 final class HomebrewMaintenanceMenu: NSObject {
     private weak var presenter: NSViewController?
@@ -15,9 +12,8 @@ final class HomebrewMaintenanceMenu: NSObject {
     /// to be sidebar rows; they're maintenance settings, so they belong beside the
     /// other maintenance commands rather than in the app's primary navigation.
     private let onOpenPage: (String) -> Void
-    private static var retained: HomebrewMaintenanceMenu?
 
-    private init(presenter: NSViewController,
+    init(presenter: NSViewController,
                  onChanged: @escaping () -> Void,
                  onOpenPage: @escaping (String) -> Void) {
         self.presenter = presenter
@@ -32,7 +28,6 @@ final class HomebrewMaintenanceMenu: NSObject {
         let controller = HomebrewMaintenanceMenu(presenter: presenter,
                                                  onChanged: onChanged,
                                                  onOpenPage: onOpenPage)
-        retained = controller
         controller.show(from: anchor)
     }
 
@@ -71,19 +66,17 @@ final class HomebrewMaintenanceMenu: NSObject {
 
     @objc private func update() { runMutation("Updating Homebrew…", HomebrewActions.updateArgs()) }
     @objc private func upgradeAll() {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = Result { try HomebrewService.installedPackages().filter(\.isOutdated) }
-            DispatchQueue.main.async {
-                guard let self else { return }
-                switch result {
-                case .failure(let error):
-                    self.showAlert("Couldn't load updates", error.localizedDescription)
-                case .success(let packages) where packages.isEmpty:
-                    self.showAlert("Homebrew is up to date", "No outdated packages were found.")
-                case .success(let packages):
-                    self.runMutation("Upgrading \(packages.count) packages…",
-                                     packages.map(HomebrewActions.upgradePlan))
-                }
+        performPreparation({
+            try HomebrewService.installedPackages().filter(\.isOutdated)
+        }) { result in
+            switch result {
+            case .failure(let error):
+                self.showAlert("Couldn't load updates", error.localizedDescription)
+            case .success(let packages) where packages.isEmpty:
+                self.showAlert("Homebrew is up to date", "No outdated packages were found.")
+            case .success(let packages):
+                self.runMutation("Upgrading \(packages.count) packages…",
+                                 packages.map(HomebrewActions.upgradePlan))
             }
         }
     }
@@ -144,34 +137,40 @@ final class HomebrewMaintenanceMenu: NSObject {
 
     // MARK: - Helpers
 
+    func performPreparation<Value>(_ work: @escaping () throws -> Value,
+                                   completion: @escaping (Result<Value, Error>) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            let result = Result { try work() }
+            DispatchQueue.main.async { [self] in
+                withExtendedLifetime(self) { completion(result) }
+            }
+        }
+    }
+
     private func previewThenRun(title: String, preview: @escaping () throws -> String,
                                 confirm: String, runTitle: String, args: [String]) {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = Result { try preview() }
-            DispatchQueue.main.async {
-                guard let self else { return }
-                guard case .success(let text) = result else {
-                    if case .failure(let error) = result {
-                        let alert = NSAlert()
-                        alert.messageText = "Couldn't prepare Homebrew preview"
-                        alert.informativeText = error.localizedDescription
-                        alert.addButton(withTitle: "OK")
-                        alert.runModal()
-                    }
-                    return
-                }
-                let alert = NSAlert()
-                alert.messageText = title
-                alert.informativeText = text.isEmpty ? "Nothing to do." : text
-                if text.isEmpty {
+        performPreparation(preview) { result in
+            guard case .success(let text) = result else {
+                if case .failure(let error) = result {
+                    let alert = NSAlert()
+                    alert.messageText = "Couldn't prepare Homebrew preview"
+                    alert.informativeText = error.localizedDescription
                     alert.addButton(withTitle: "OK")
                     alert.runModal()
-                    return
                 }
-                Buttons.addDestructiveConfirmation(confirm, to: alert)
-                guard alert.runModal() == .alertFirstButtonReturn else { return }
-                self.runMutation(runTitle, args)
+                return
             }
+            let alert = NSAlert()
+            alert.messageText = title
+            alert.informativeText = text.isEmpty ? "Nothing to do." : text
+            if text.isEmpty {
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+                return
+            }
+            Buttons.addDestructiveConfirmation(confirm, to: alert)
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            self.runMutation(runTitle, args)
         }
     }
 
