@@ -103,38 +103,38 @@ final class HomebrewRunner {
         process.standardOutput = pipe
         process.standardError = pipe
 
-        // Accumulate partial reads and emit only whole lines. `buffer` is touched
-        // solely inside this serialized readability handler, so no extra locking.
         // Completion must not race the log: the process can exit while its last
-        // lines still sit in the pipe, so wait for BOTH termination and reader EOF
-        // before reporting done. `finishReader` is one-shot so EOF and the
-        // post-termination grace below can both call it safely.
+        // lines still sit in the pipe, so wait for BOTH termination and reader EOF.
+        // The grace timeout shares `buffer` with FileHandle's callback, so one lock
+        // serializes both paths and lets either one flush the trailing partial line.
         let group = DispatchGroup()
         let readerLock = NSLock()
+        var buffer = Data()
         var readerDone = false
         func finishReader() {
             readerLock.lock()
-            let first = !readerDone
+            guard !readerDone else { readerLock.unlock(); return }
             readerDone = true
+            if !buffer.isEmpty, let line = String(data: buffer, encoding: .utf8), !line.isEmpty {
+                DispatchQueue.main.async { onLine(line) }
+            }
+            buffer.removeAll()
             readerLock.unlock()
-            guard first else { return }
             pipe.fileHandleForReading.readabilityHandler = nil
             group.leave()
         }
         group.enter()   // left by finishReader (EOF or grace)
         group.enter()   // left on termination (or launch failure)
 
-        var buffer = Data()
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
             if chunk.isEmpty {                       // EOF
-                if !buffer.isEmpty, let line = String(data: buffer, encoding: .utf8), !line.isEmpty {
-                    DispatchQueue.main.async { onLine(line) }
-                }
-                buffer.removeAll()
                 finishReader()
                 return
             }
+
+            readerLock.lock()
+            guard !readerDone else { readerLock.unlock(); return }
             buffer.append(chunk)
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let lineData = buffer.subdata(in: buffer.startIndex..<newline)
@@ -142,6 +142,7 @@ final class HomebrewRunner {
                 let line = String(data: lineData, encoding: .utf8) ?? ""
                 DispatchQueue.main.async { onLine(line) }
             }
+            readerLock.unlock()
         }
 
         var exitStatus: Int32 = -1

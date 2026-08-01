@@ -45,20 +45,30 @@ import Testing
         #expect(try String(contentsOf: log, encoding: .utf8) == "AF")
     }
 
-    @Test func everyLogLineArrivesBeforeCompletion() async throws {
+    @Test func everyLogLineArrivesBeforeCompletion() async {
         // The trailing chunk has no newline, so it is only flushed at pipe EOF —
         // completion must still come after it, never between termination and EOF.
-        let plan = HomebrewCommandPlan(arguments: ["-c", "printf 'first\\nlast-no-newline'"])
-        let runner = HomebrewRunner(executablePath: "/bin/sh", environment: ProcessInfo.processInfo.environment)
+        let result = await runScript("printf 'first\\nlast-no-newline'")
 
+        #expect(result.success)
+        #expect(result.lines == ["first", "last-no-newline"])
+    }
+
+    @Test func graceFlushesTrailingLineWhenDescendantKeepsPipeOpen() async {
+        let result = await runScript("printf 'held-open-tail'; /bin/sleep 3 &")
+
+        #expect(result.success)
+        #expect(result.lines == ["held-open-tail"])
+    }
+
+    private func runScript(_ script: String) async -> (success: Bool, lines: [String]) {
+        let plan = HomebrewCommandPlan(arguments: ["-c", script])
+        let runner = HomebrewRunner(executablePath: "/bin/sh", environment: ProcessInfo.processInfo.environment)
         var lines: [String] = []
-        let (success, linesAtCompletion) = await withCheckedContinuation { continuation in
+        return await withCheckedContinuation { continuation in
             runner.run(plan, onLine: { lines.append($0) }) { success in
                 continuation.resume(returning: (success, lines))
             }
         }
-
-        #expect(success)
-        #expect(linesAtCompletion == ["first", "last-no-newline"])
     }
 }
