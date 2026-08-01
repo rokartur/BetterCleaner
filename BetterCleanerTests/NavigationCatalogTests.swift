@@ -44,6 +44,42 @@ import Foundation
     }
 }
 
+@Suite struct PageHistoryTests {
+    @Test func walksBackwardAndForwardInVisitOrder() {
+        var history = PageHistory(initial: "applications")
+
+        #expect(!history.canGoBack)
+        #expect(!history.canGoForward)
+        history.visit("junk")
+        history.visit("history")
+
+        #expect(history.goBack() == "junk")
+        #expect(history.current == "junk")
+        #expect(history.canGoBack)
+        #expect(history.canGoForward)
+        #expect(history.goBack() == "applications")
+        #expect(history.goForward() == "junk")
+        #expect(history.goForward() == "history")
+        #expect(!history.canGoForward)
+    }
+
+    @Test func newVisitClearsForwardWithoutRecordingDuplicates() {
+        var history = PageHistory(initial: "applications")
+        history.visit("junk")
+        _ = history.goBack()
+
+        history.visit("applications")
+        #expect(!history.canGoBack)
+        #expect(history.canGoForward)
+
+        history.visit("pkg")
+        #expect(history.current == "pkg")
+        #expect(history.canGoBack)
+        #expect(!history.canGoForward)
+        #expect(history.goBack() == "applications")
+    }
+}
+
 /// Homebrew cask versions arrive as `version,build` ("1.1.16,20260425132215"). The
 /// build id changes no decision and doubled the width of the list's version column,
 /// so the row shows the recognisable part and keeps the rest in the tooltip.

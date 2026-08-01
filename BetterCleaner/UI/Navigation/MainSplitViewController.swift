@@ -1,5 +1,37 @@
 import AppKit
 
+struct PageHistory: Equatable {
+    private(set) var current: String
+    private var back: [String] = []
+    private var forward: [String] = []
+
+    init(initial: String) { current = initial }
+
+    var canGoBack: Bool { !back.isEmpty }
+    var canGoForward: Bool { !forward.isEmpty }
+
+    mutating func visit(_ page: String) {
+        guard page != current else { return }
+        back.append(current)
+        current = page
+        forward.removeAll()
+    }
+
+    mutating func goBack() -> String? {
+        guard let page = back.popLast() else { return nil }
+        forward.append(current)
+        current = page
+        return page
+    }
+
+    mutating func goForward() -> String? {
+        guard let page = forward.popLast() else { return nil }
+        back.append(current)
+        current = page
+        return page
+    }
+}
+
 /// Root split: the installed-apps list as a collapsible **sidebar** (shown on the
 /// Applications page, hidden on every other page) plus a content area that swaps
 /// per the page chosen from the toolbar's page menu.
@@ -48,9 +80,12 @@ final class MainSplitViewController: NSSplitViewController {
     private var currentScanToken: ScanToken?
 
     private var reclaimable: [String: Int64] = [:]
-    /// The page currently shown. Tracked so the single Homebrew sidebar row can
-    /// return to whichever category the user last had open.
-    private var currentPageID = "applications"
+    private var pageHistory = PageHistory(initial: "applications")
+    private var currentPageID: String { pageHistory.current }
+    private var lastBrewPageID = "brew.installed"
+    var onNavigationStateChanged: ((Bool, Bool) -> Void)? {
+        didSet { notifyNavigationState() }
+    }
 
     /// Every selectable page other than the default Applications page.
     private static let pageIDs: Set<String> = ["junk", "orphaned", "pkg", "brew.installed", "brew.available", "brew.services", "brew.taps", "brew.autoupdate", "brew.maintenance", "devenv", "history"]
@@ -176,11 +211,10 @@ final class MainSplitViewController: NSSplitViewController {
         homebrewDetailVC.onChanged = { [weak self] in self?.homebrewListVC.rescan() }
         homebrewMaintenanceVC.onChanged = { [weak self] in self?.homebrewListVC.rescan() }
         homebrewListVC.onMaintenanceRequested = { [weak self] anchor in self?.presentHomebrewMaintenance(anchor) }
-        // The column's own switcher is the source of truth for which category is
-        // shown; mirror it into `currentPageID` so a later `select(_:)` for the
-        // Homebrew row restores the category the user last looked at.
+        // Category switches are page-level navigation too: record them without
+        // reloading the category that HomebrewListViewController already selected.
         homebrewListVC.onCategoryChanged = { [weak self] category in
-            self?.currentPageID = Self.pageID(for: category)
+            self?.recordHomebrewCategory(category)
         }
     }
 
@@ -354,19 +388,39 @@ final class MainSplitViewController: NSSplitViewController {
     // MARK: - Page routing
 
     func select(_ id: String) {
-        var resolved = Self.pageIDs.contains(id) ? id : "applications"
-        // The Homebrew sidebar row reopens the category the user last used, so
-        // switching away and back doesn't silently reset them to Installed.
-        if resolved == "brew.installed", Self.brewCategoryPageIDs.contains(currentPageID) {
-            resolved = currentPageID
-        }
-        currentPageID = resolved
-        view.window?.title = Self.windowTitle(for: resolved)
+        let requested = Self.pageIDs.contains(id) ? id : "applications"
+        // The one Homebrew sidebar row reopens the category used most recently.
+        let resolved = requested == "brew.installed" ? lastBrewPageID : requested
+        pageHistory.visit(resolved)
+        showPage(resolved)
+    }
+
+    func goBack() {
+        guard let page = pageHistory.goBack() else { return }
+        showPage(page)
+    }
+
+    func goForward() {
+        guard let page = pageHistory.goForward() else { return }
+        showPage(page)
+    }
+
+    private func recordHomebrewCategory(_ category: HomebrewCategory) {
+        let page = Self.pageID(for: category)
+        lastBrewPageID = page
+        pageHistory.visit(page)
+        view.window?.title = Self.windowTitle(for: page)
+        notifyNavigationState()
+    }
+
+    private func showPage(_ page: String) {
+        if Self.brewCategoryPageIDs.contains(page) { lastBrewPageID = page }
+        view.window?.title = Self.windowTitle(for: page)
         // Every brew category shares one sidebar row, so highlight that row for all
         // of them instead of clearing the selection on a category the list owns.
-        navVC.selectRow(Self.brewCategoryPageIDs.contains(resolved) ? "brew.installed" : resolved)
-        setContentListCollapsed(!Self.sidebarPageIDs.contains(resolved))
-        switch resolved {
+        navVC.selectRow(Self.brewCategoryPageIDs.contains(page) ? "brew.installed" : page)
+        setContentListCollapsed(!Self.sidebarPageIDs.contains(page))
+        switch page {
         case "junk":
             container.setContent(cleanupVC); cleanupVC.startIfNeeded()
         case "orphaned":
@@ -376,9 +430,9 @@ final class MainSplitViewController: NSSplitViewController {
             container.setContent(packageDetailVC)
             packageListVC.startIfNeeded()
         case "brew.installed", "brew.available", "brew.services", "brew.taps":
-            let category: HomebrewCategory = resolved == "brew.services" ? .services
-                : (resolved == "brew.taps" ? .taps
-                   : (resolved == "brew.available" ? .available : .installed))
+            let category: HomebrewCategory = page == "brew.services" ? .services
+                : (page == "brew.taps" ? .taps
+                   : (page == "brew.available" ? .available : .installed))
             sidebarContainer.setContent(homebrewListVC)
             container.setContent(homebrewDetailVC)
             homebrewListVC.setCategory(category)
@@ -401,6 +455,11 @@ final class MainSplitViewController: NSSplitViewController {
                 }
             }
         }
+        notifyNavigationState()
+    }
+
+    private func notifyNavigationState() {
+        onNavigationStateChanged?(pageHistory.canGoBack, pageHistory.canGoForward)
     }
 
     /// Collapse/expand the middle master-list column. Set the property directly —

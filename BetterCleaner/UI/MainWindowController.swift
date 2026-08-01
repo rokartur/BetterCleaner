@@ -2,8 +2,39 @@ import AppKit
 
 @MainActor
 final class MainWindowController: NSWindowController {
+    private static let navigationItemIdentifier = NSToolbarItem.Identifier("BetterCleanerNavigation")
+
     private let splitVC = MainSplitViewController()
     private lazy var rootVC = RootViewController(split: splitVC)
+    private lazy var navigationControl: NSSegmentedControl = {
+        let back = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "Back")!
+        let forward = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Forward")!
+        let control = NSSegmentedControl(
+            images: [back, forward],
+            trackingMode: .momentary,
+            target: self,
+            action: #selector(navigateHistory(_:))
+        )
+        control.segmentStyle = .texturedRounded
+        control.setWidth(34, forSegment: 0)
+        control.setWidth(34, forSegment: 1)
+        control.setToolTip("Back", forSegment: 0)
+        control.setToolTip("Forward", forSegment: 1)
+        control.setAccessibilityLabel("Navigation history")
+        control.setAccessibilityHelp("Go back or forward through visited pages.")
+        control.setEnabled(false, forSegment: 0)
+        control.setEnabled(false, forSegment: 1)
+        return control
+    }()
+    private lazy var navigationItem: NSToolbarItem = {
+        let item = NSToolbarItem(itemIdentifier: Self.navigationItemIdentifier)
+        item.label = "Navigation"
+        item.paletteLabel = "Navigation"
+        item.toolTip = "Back and Forward"
+        item.view = navigationControl
+        item.isNavigational = true
+        return item
+    }()
     private var didInitialScan = false
 
     init() {
@@ -27,13 +58,17 @@ final class MainWindowController: NSWindowController {
         window.isMovableByWindowBackground = true
         super.init(window: window)
 
-        // An empty unified toolbar (no items) — its only job is to give the titlebar
-        // the taller unified height so the traffic lights sit lower, exactly like the
-        // BetterSettings window. Navigation + Settings still live in the sidebar.
+        // Match System Settings: page navigation lives in the unified titlebar,
+        // while primary destinations remain in the sidebar.
         let toolbar = NSToolbar(identifier: "BetterCleanerMainToolbar")
         toolbar.displayMode = .iconOnly
+        toolbar.delegate = self
         window.toolbar = toolbar
         window.toolbarStyle = .unified
+        splitVC.onNavigationStateChanged = { [weak self] canGoBack, canGoForward in
+            self?.navigationControl.setEnabled(canGoBack, forSegment: 0)
+            self?.navigationControl.setEnabled(canGoForward, forSegment: 1)
+        }
 
         // Assigning a split content controller can size the window down to the
         // panes' minimums. Reassert the product default before restoring any saved
@@ -50,6 +85,11 @@ final class MainWindowController: NSWindowController {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
+
+    @objc private func navigateHistory(_ sender: NSSegmentedControl) {
+        if sender.selectedSegment == 0 { splitVC.goBack() }
+        else if sender.selectedSegment == 1 { splitVC.goForward() }
+    }
 
     override func showWindow(_ sender: Any?) {
         super.showWindow(sender)
@@ -75,4 +115,20 @@ final class MainWindowController: NSWindowController {
     func showOrphanedMode() { splitVC.showOrphaned() }
     func showDeleteHistory() { splitVC.showDeleteHistory() }
     func selectApp(name: String?, path: String?) { splitVC.selectApp(name: name, path: path) }
+}
+
+extension MainWindowController: NSToolbarDelegate {
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [Self.navigationItemIdentifier]
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [Self.navigationItemIdentifier]
+    }
+
+    func toolbar(_ toolbar: NSToolbar,
+                 itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        itemIdentifier == Self.navigationItemIdentifier ? navigationItem : nil
+    }
 }
