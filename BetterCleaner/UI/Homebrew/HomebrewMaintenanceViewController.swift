@@ -18,10 +18,6 @@ final class HomebrewMaintenanceViewController: NSViewController {
     private let doctorTextView = NSTextView()
     private let doctorScrollView = NSScrollView()
 
-    private let securityStatusLabel = NSTextField(labelWithString: "Not scanned")
-    private let securityTextView = NSTextView()
-    private let securityScrollView = NSScrollView()
-
     private let cacheSizeLabel = NSTextField(labelWithString: "—")
     private let analyticsStatusLabel = NSTextField(labelWithString: "Not checked")
     private let analyticsSwitch = NSSwitch()
@@ -35,7 +31,6 @@ final class HomebrewMaintenanceViewController: NSViewController {
     private lazy var updateButton = Buttons.primary("Update Homebrew", target: self, action: #selector(updateHomebrew))
     private lazy var doctorButton = Buttons.secondary("Run Doctor", target: self, action: #selector(runDoctor))
     private lazy var clearCacheButton = Buttons.secondary("Clear Cache…", target: self, action: #selector(clearCache))
-    private lazy var scanButton = Buttons.secondary("Run Security Scan", target: self, action: #selector(runSecurityScan))
 
     private var snapshot: HomebrewMaintenanceSnapshot?
     private var didLoadSnapshot = false
@@ -70,13 +65,11 @@ final class HomebrewMaintenanceViewController: NSViewController {
         }
 
         configureLog(doctorTextView, in: doctorScrollView)
-        configureLog(securityTextView, in: securityScrollView)
         analyticsSwitch.target = self
         analyticsSwitch.action = #selector(analyticsChanged)
         analyticsSwitch.toolTip = "Enable or disable Homebrew's anonymous analytics preference."
 
         reloadButton.toolTip = "Reload Homebrew health and statistics."
-        scanButton.toolTip = "Check installed formulae against the OSV.dev vulnerability database."
         updateButton.toolTip = "Run brew update and show its complete live log."
         doctorButton.toolTip = "Run brew doctor again."
         clearCacheButton.toolTip = "Remove cached Homebrew downloads and stale files."
@@ -112,8 +105,6 @@ final class HomebrewMaintenanceViewController: NSViewController {
             actions: [doctorButton],
             body: doctorBody
         )
-
-        let securitySection = makeSecuritySection()
 
         let cacheBody = metricRow([
             metric(title: "Cache on disk", value: cacheSizeLabel),
@@ -161,7 +152,6 @@ final class HomebrewMaintenanceViewController: NSViewController {
             errorLabel,
             versionSection,
             doctorSection,
-            securitySection,
             cacheSection,
             analyticsSection,
             statsSection,
@@ -171,7 +161,7 @@ final class HomebrewMaintenanceViewController: NSViewController {
         contentStack.spacing = Spacing.xl
         contentStack.translatesAutoresizingMaskIntoConstraints = false
 
-        for item in [headerRow, errorLabel, versionSection, doctorSection, securitySection,
+        for item in [headerRow, errorLabel, versionSection, doctorSection,
                      cacheSection, analyticsSection, statsSection] {
             item.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
         }
@@ -278,30 +268,6 @@ final class HomebrewMaintenanceViewController: NSViewController {
         }
     }
 
-    @objc private func runSecurityScan() {
-        setBusy(true)
-        securityStatusLabel.stringValue = "Scanning…"
-        securityStatusLabel.textColor = .secondaryLabelColor
-        securityTextView.string = ""
-
-        Task { [weak self] in
-            do {
-                let report = try await HomebrewSecurityScan.run()
-                guard let self else { return }
-                self.renderSecurity(report)
-                self.setBusy(false)
-            } catch {
-                // Advisory feature: offline or API failure degrades to a note,
-                // never an alert.
-                guard let self else { return }
-                self.securityStatusLabel.stringValue = "Scan unavailable"
-                self.securityStatusLabel.textColor = .secondaryLabelColor
-                self.securityTextView.string = "Couldn't reach OSV.dev — check your connection and try again.\n\(error.localizedDescription)"
-                self.setBusy(false)
-            }
-        }
-    }
-
     @objc private func clearCache() {
         let alert = NSAlert()
         alert.messageText = "Clear the Homebrew cache?"
@@ -364,9 +330,6 @@ final class HomebrewMaintenanceViewController: NSViewController {
         doctorStatusLabel.stringValue = "Not checked"
         doctorStatusLabel.textColor = .secondaryLabelColor
         doctorTextView.string = "Run or reload to see brew doctor's complete output."
-        securityStatusLabel.stringValue = "Not scanned"
-        securityStatusLabel.textColor = .secondaryLabelColor
-        securityTextView.string = "Run the security scan to check installed formulae for known advisories."
         cacheSizeLabel.stringValue = "—"
         analyticsStatusLabel.stringValue = "Not checked"
         analyticsSwitch.state = .off
@@ -426,23 +389,6 @@ final class HomebrewMaintenanceViewController: NSViewController {
         doctorTextView.string = report.output.isEmpty ? "(brew doctor produced no output.)" : report.output
     }
 
-    private func renderSecurity(_ report: HomebrewSecurityScan.Report) {
-        if report.findings.isEmpty {
-            securityStatusLabel.stringValue = "No known advisories · \(report.scannedCount) formulae checked"
-            securityStatusLabel.textColor = .systemGreen
-            securityTextView.string = "OSV.dev reported no advisories for the installed formula versions."
-        } else {
-            securityStatusLabel.stringValue =
-                "\(report.findings.count) of \(report.scannedCount) formulae have advisories"
-            securityStatusLabel.textColor = .systemOrange
-            securityTextView.string = report.findings.map { finding in
-                "\(finding.package) \(finding.version)\n" + finding.vulnerabilityIDs
-                    .map { "  \($0) — \(HomebrewSecurityScan.advisoryURL($0))" }
-                    .joined(separator: "\n")
-            }.joined(separator: "\n\n")
-        }
-    }
-
     private func renderAnalytics(_ enabled: Bool) {
         analyticsSwitch.state = enabled ? .on : .off
         analyticsStatusLabel.stringValue = enabled ? "Analytics enabled" : "Analytics disabled"
@@ -465,7 +411,6 @@ final class HomebrewMaintenanceViewController: NSViewController {
         reloadButton.isEnabled = !isBusy
         updateButton.isEnabled = !isBusy && installed
         doctorButton.isEnabled = !isBusy && installed
-        scanButton.isEnabled = !isBusy && installed
         clearCacheButton.isEnabled = !isBusy && installed
         analyticsSwitch.isEnabled = !isBusy && snapshot?.analyticsEnabled != nil
     }
@@ -483,21 +428,6 @@ final class HomebrewMaintenanceViewController: NSViewController {
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
         label.isSelectable = true
-    }
-
-    private func makeSecuritySection() -> NSView {
-        securityStatusLabel.font = Typography.medium(.subheadline)
-        let body = NSStackView(views: [securityStatusLabel, securityScrollView])
-        body.orientation = .vertical
-        body.alignment = .leading
-        body.spacing = Spacing.sm
-        securityScrollView.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
-        return section(
-            title: "Security",
-            subtitle: "Advisory scan of installed formulae against OSV.dev. Matches by name and version only — treat results as hints, not proof.",
-            actions: [scanButton],
-            body: body
-        )
     }
 
     private func configureLog(_ textView: NSTextView, in scrollView: NSScrollView) {
