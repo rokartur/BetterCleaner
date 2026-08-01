@@ -1,5 +1,41 @@
 import AppKit
 
+enum HomebrewDependentsCheck: Equatable {
+    case notNeeded
+    case loading
+    case loaded([String])
+    case failed(String)
+
+    var canUninstall: Bool {
+        if case .loading = self { return false }
+        return true
+    }
+
+    var dependents: [String] {
+        if case .loaded(let dependents) = self { return dependents }
+        return []
+    }
+
+    var failureMessage: String? {
+        if case .failed(let message) = self { return message }
+        return nil
+    }
+
+    var isLoading: Bool {
+        if case .loading = self { return true }
+        return false
+    }
+
+    func requiresConfirmation(confirmBeforeDelete: Bool, zap: Bool) -> Bool {
+        if confirmBeforeDelete || zap { return true }
+        return switch self {
+        case .notNeeded: false
+        case .loading, .failed: true
+        case .loaded(let dependents): !dependents.isEmpty
+        }
+    }
+}
+
 /// Detail pane for the Homebrew page, styled 1:1 after TapHouse: a hero icon tile +
 /// big name + "version · Type", an Overview / Dependencies tab strip, then sectioned
 /// content (Description and an Information key/value grid). A shared sticky action
@@ -12,7 +48,7 @@ final class HomebrewDetailViewController: NSViewController {
     var onChanged: (() -> Void)?
 
     private var selection: HomebrewSelection?
-    private var dependents: [String] = []
+    private var dependentsCheck = HomebrewDependentsCheck.notNeeded
     private var depTree = ""
     private var sizeText = ""
     private var dependencyError = ""
@@ -132,7 +168,7 @@ final class HomebrewDetailViewController: NSViewController {
     // MARK: - Public entry
 
     func show(_ selection: HomebrewSelection?) {
-        dependents = []
+        dependentsCheck = .notNeeded
         depTree = ""
         sizeText = ""
         dependencyError = ""
@@ -239,21 +275,36 @@ final class HomebrewDetailViewController: NSViewController {
             header.setSummary([version, kind].filter { !$0.isEmpty }.joined(separator: " · "))
         }
 
-        renderTabContent()
-
-        // Load size + dependency info off the main thread, then re-render.
         let reference = package.reference
         let isCask = package.isCask
         let installed = isInstalled(package)
+        dependentsCheck = !isCask && installed ? .loading : .notNeeded
+        renderTabContent()
+
+        // Reverse dependencies gate uninstall safety, so publish that result before
+        // slower size/tree details and never let a tree error skip the safety check.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            if !isCask, installed {
+                let check: HomebrewDependentsCheck
+                do {
+                    check = .loaded(try HomebrewService.usedBy(token: reference.token))
+                } catch {
+                    check = .failed(error.localizedDescription)
+                }
+                DispatchQueue.main.async {
+                    guard let self, case .package(let current)? = self.selection,
+                          current.reference == reference else { return }
+                    self.dependentsCheck = check
+                    self.renderTabContent()
+                }
+            }
+
             let size = HomebrewService.installedSize(package)
             var tree = ""
-            var usedBy: [String] = []
             var dependencyError = ""
             if !isCask, installed {
                 do {
                     tree = try HomebrewService.dependencyTree(token: reference.token)
-                    usedBy = try HomebrewService.usedBy(token: reference.token)
                 } catch {
                     dependencyError = error.localizedDescription
                 }
@@ -263,7 +314,6 @@ final class HomebrewDetailViewController: NSViewController {
                       current.reference == reference else { return }
                 self.sizeText = size ?? ""
                 self.depTree = tree
-                self.dependents = usedBy
                 self.dependencyError = dependencyError
                 self.renderTabContent()
             }
@@ -291,16 +341,22 @@ final class HomebrewDetailViewController: NSViewController {
             if !package.caveats.isEmpty { addSection("Caveats", monoLabel(package.caveats)) }
             if !package.requirements.isEmpty { addSection("Requirements", wrapLabel(package.requirements.joined(separator: ", "))) }
         case .dependencies:
+            let dependents = dependentsCheck.dependents
             if !package.dependencies.isEmpty {
                 addSection("Dependencies", wrapLabel(package.dependencies.joined(separator: ", ")))
             }
-            if !dependents.isEmpty {
-                let label = wrapLabel(dependents.joined(separator: ", "))
-                addSection("Required by", label)
+            if dependentsCheck.isLoading {
+                addSection("Required by", wrapLabel("Checking installed packages…"))
+            } else if !dependents.isEmpty {
+                addSection("Required by", wrapLabel(dependents.joined(separator: ", ")))
+            }
+            if let message = dependentsCheck.failureMessage {
+                addSection("Couldn't verify reverse dependencies", wrapLabel(message))
             }
             if !depTree.isEmpty { addSection("Dependency tree", monoLabel(depTree)) }
-            if !dependencyError.isEmpty { addSection("Couldn't load dependency details", wrapLabel(dependencyError)) }
-            if package.dependencies.isEmpty && dependents.isEmpty && depTree.isEmpty && dependencyError.isEmpty {
+            if !dependencyError.isEmpty { addSection("Couldn't load dependency tree", wrapLabel(dependencyError)) }
+            if package.dependencies.isEmpty && dependents.isEmpty && depTree.isEmpty && dependencyError.isEmpty
+                && !dependentsCheck.isLoading && dependentsCheck.failureMessage == nil {
                 addSection("Dependencies", wrapLabel("No dependencies."))
             }
         }
@@ -378,11 +434,17 @@ final class HomebrewDetailViewController: NSViewController {
                 subject: name
             ))
         }
-        trailing.append(configuredAction(
+        let uninstall = configuredAction(
             Buttons.destructive("Uninstall", target: self, action: #selector(uninstall)),
             symbol: "trash",
             subject: name
-        ))
+        )
+        uninstall.isEnabled = dependentsCheck.canUninstall
+        if !uninstall.isEnabled {
+            uninstall.toolTip = "Checking reverse dependencies before uninstalling."
+            uninstall.setAccessibilityHelp(uninstall.toolTip)
+        }
+        trailing.append(uninstall)
 
         actionBar.setLeading(leading)
         actionBar.setTrailing(trailing)
@@ -556,13 +618,17 @@ final class HomebrewDetailViewController: NSViewController {
     }
 
     @objc private func uninstall() {
-        guard case .package(let package)? = selection else { return }
+        guard case .package(let package)? = selection, dependentsCheck.canUninstall else { return }
         let zap = package.isCask && zapEnabled
+        let dependents = dependentsCheck.dependents
 
         // The confirmBeforeDelete preference covers restorable trash deletes. A zap
-        // is irreversible and bypasses the restore net, and the "still required by"
-        // warning is spec-promised — both always confirm, regardless of the pref.
-        if Preferences.shared.confirmBeforeDelete || zap || !dependents.isEmpty {
+        // is irreversible and bypasses the restore net, and reverse dependencies
+        // always require confirmation — including when their lookup failed.
+        if dependentsCheck.requiresConfirmation(
+            confirmBeforeDelete: Preferences.shared.confirmBeforeDelete,
+            zap: zap
+        ) {
             let alert = NSAlert()
             alert.messageText = "Uninstall “\(package.displayName)”?"
             var info = package.isCask
@@ -572,6 +638,9 @@ final class HomebrewDetailViewController: NSViewController {
             if !dependents.isEmpty {
                 info += "\n\n⚠️ Still required by: \(dependents.joined(separator: ", ")). "
                     + "Removing it may break those packages."
+            } else if let message = dependentsCheck.failureMessage {
+                info += "\n\n⚠️ BetterCleaner couldn't verify reverse dependencies: \(message) "
+                    + "Removing this formula may break other packages."
             }
             alert.informativeText = info
             Buttons.addDestructiveConfirmation("Uninstall", to: alert)
