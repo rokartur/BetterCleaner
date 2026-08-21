@@ -53,7 +53,18 @@ enum AppRemover {
         var results: [StepResult] = []
         var trashed: [URL] = []
         var failed: [URL] = []
+        /// Items deliberately left alone (protected, or a symlink). Not failures,
+        /// but not removed either — saying nothing about them reads as success.
+        var skipped: [URL] = []
         var cancelled = false
+        var failureReason: String?
+
+        /// The removal side of this uninstall, so callers report it in the same
+        /// words as every other removal in the app.
+        var removal: Trasher.Outcome {
+            Trasher.Outcome(trashed: trashed, failed: failed, skipped: skipped,
+                            cancelled: cancelled, failureReason: failureReason)
+        }
     }
 
     static func uninstall(_ plan: Plan, progress: ((Step) -> Void)? = nil) -> Summary {
@@ -104,6 +115,9 @@ enum AppRemover {
         var usedNames = Set<String>()
         let userResult = trashUserItems(part.userItems, origin: plan.app.name, at: removedAt, box: box, used: &usedNames)
         summary.trashed.append(contentsOf: userResult.trashed)
+        summary.failed.append(contentsOf: userResult.failed)
+        summary.skipped.append(contentsOf: userResult.skipped)
+        summary.failureReason = userResult.failureReason
 
         // 5. Privileged batch: system bootouts + system-file moves into the box +
         //    any escalated user moves + CLI rm + receipt forgets, in ONE elevation.
@@ -126,7 +140,16 @@ enum AppRemover {
         if !privileged.isEmpty {
             do {
                 try PrivilegedExecutor.runBatch(privileged)
-                summary.trashed.append(contentsOf: batchSystemURLs)
+                // The batch is one command per file, so its exit status only speaks
+                // for the last one. Ask the disk which paths are actually gone
+                // (lstat, so a surviving broken symlink still counts as present).
+                let stillThere = { (url: URL) in (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil }
+                summary.trashed.append(contentsOf: batchSystemURLs.filter { !stillThere($0) })
+                let stranded = batchSystemURLs.filter(stillThere)
+                summary.failed.append(contentsOf: stranded)
+                if !stranded.isEmpty {
+                    summary.failureReason = summary.failureReason ?? "the administrator command did not remove them"
+                }
                 batchSucceeded = true
                 if !part.receiptIDs.isEmpty {
                     stepResults[.forgetReceipts] = StepResult(step: .forgetReceipts, outcome: .done, detail: "\(part.receiptIDs.count) forgotten")
@@ -139,6 +162,7 @@ enum AppRemover {
                 }
             } catch {
                 summary.failed.append(contentsOf: batchSystemURLs)
+                summary.failureReason = summary.failureReason ?? error.localizedDescription
                 if !part.receiptIDs.isEmpty {
                     stepResults[.forgetReceipts] = StepResult(step: .forgetReceipts, outcome: .failed, detail: "\(error)")
                 }
@@ -156,7 +180,7 @@ enum AppRemover {
         // and per-file restore data). System-batch records are only attached when
         // the privileged batch actually ran.
         if !summary.trashed.isEmpty {
-            let sizeByPath = Dictionary(part.userItems.map { ($0.url.path, $0.size) }, uniquingKeysWith: { a, _ in a })
+            let sizeByPath = Dictionary(part.userItems.map { ($0.url.path, $0.size) }, uniquingKeysWith: { first, _ in first })
             let bytes = summary.trashed.reduce(Int64(0)) { $0 + (sizeByPath[$1.path] ?? 0) }
             let files = userResult.records + (batchSucceeded ? systemRecords : [])
             TrashHistory.record(origin: plan.app.name, files: files, bytes: bytes, at: removedAt)
@@ -276,7 +300,9 @@ enum AppRemover {
     /// Restore records for everything the privileged batch touches: system-file and
     /// escalated-user moves are recoverable (under `container`); CLI symlinks
     /// (`rm -f`) and forgotten receipts are not.
-    private static func privilegedRecords(systemMoves: [(url: URL, dest: URL)], escalated: [(url: URL, dest: URL)], cliURLs: [URL], receiptIDs: [String], forgetReceipts: Bool) -> [TrashHistory.FileRecord] {
+    private static func privilegedRecords(systemMoves: [(url: URL, dest: URL)], escalated: [(url: URL, dest: URL)],
+                                          cliURLs: [URL], receiptIDs: [String],
+                                          forgetReceipts: Bool) -> [TrashHistory.FileRecord] {
         var records = (systemMoves + escalated).map {
             TrashHistory.FileRecord(originalPath: $0.url.path, trashPath: $0.dest.path, domain: "system", recoverable: true)
         }
@@ -291,31 +317,69 @@ enum AppRemover {
         return records
     }
 
-    /// Move user-domain items into the Trash `box` with `FileManager` (no prompt).
-    /// Returns the moved URLs, the (src,dest) pairs that need privilege (folded into
-    /// the single elevation rather than a second prompt), and restore records. Same
-    /// protected/symlink guards as `Trasher`.
-    private static func trashUserItems(_ items: [FileItem], origin: String, at date: Date, box: URL, used: inout Set<String>) -> (trashed: [URL], escalated: [(url: URL, dest: URL)], records: [TrashHistory.FileRecord]) {
-        let fm = FileManager.default
+    /// What one pass of `trashUserItems` did. `escalated` folds into the single
+    /// elevation below rather than costing a second prompt; `failed` and `skipped`
+    /// are final — no password would change them.
+    private struct UserTrashResult {
         var trashed: [URL] = []
         var escalated: [(url: URL, dest: URL)] = []
+        var failed: [URL] = []
+        var skipped: [URL] = []
         var records: [TrashHistory.FileRecord] = []
+        var failureReason: String?
+    }
+
+    /// Move user-domain items into the Trash `box` with `FileManager` (no prompt).
+    /// Same protected/symlink guards, cross-volume handling and escalation rule as
+    /// `Trasher.trash`.
+    private static func trashUserItems(_ items: [FileItem], origin: String, at date: Date,
+                                       box: URL, used: inout Set<String>) -> UserTrashResult {
+        let fm = FileManager.default
+        var result = UserTrashResult()
         for item in items {
-            if FileMatcher.isProtected(url: item.url) { continue }
-            if FileMatcher.isProtected(url: item.url.resolvingSymlinksInPath()) { continue }
-            if (try? item.url.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true { continue }
+            guard !FileMatcher.isProtected(url: item.url),
+                  !FileMatcher.isProtected(url: item.url.resolvingSymlinksInPath()),
+                  (try? item.url.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink != true else {
+                result.skipped.append(item.url)
+                continue
+            }
             // Stamp provenance (app + time) before the move into the Trash.
             TrashMetadata.tag(item.url, origin: origin, at: date)
+
+            // A file on another volume belongs in that volume's own Trash. Moving it
+            // into this box would haul every byte onto the boot disk, and a
+            // privileged `mv` would do exactly the same thing for a password.
+            guard TrashBox.isOnTrashVolume(item.url) else {
+                var landed: NSURL?
+                do {
+                    try fm.trashItem(at: item.url, resultingItemURL: &landed)
+                    result.trashed.append(item.url)
+                    let trashPath = (landed as URL?)?.path
+                    result.records.append(TrashHistory.FileRecord(
+                        originalPath: item.url.path, trashPath: trashPath,
+                        domain: "user", recoverable: trashPath != nil))
+                } catch {
+                    result.failed.append(item.url)
+                    result.failureReason = result.failureReason ?? error.localizedDescription
+                }
+                continue
+            }
+
             let dest = box.appendingPathComponent(TrashBox.uniqueName(in: box, for: item.url.lastPathComponent, used: &used))
             do {
                 try fm.moveItem(at: item.url, to: dest)
-                trashed.append(item.url)
-                records.append(TrashHistory.FileRecord(originalPath: item.url.path, trashPath: dest.path, domain: "user", recoverable: true))
+                result.trashed.append(item.url)
+                result.records.append(TrashHistory.FileRecord(originalPath: item.url.path, trashPath: dest.path, domain: "user", recoverable: true))
+            } catch where Trasher.isPermissionDenied(error) {
+                result.escalated.append((item.url, dest))
             } catch {
-                escalated.append((item.url, dest))
+                // A read-only volume or a full disk fails the same way for root, so
+                // adding this to the batch would only buy the user a password dialog.
+                result.failed.append(item.url)
+                result.failureReason = result.failureReason ?? error.localizedDescription
             }
         }
-        return (trashed, escalated, records)
+        return result
     }
 
     // MARK: - Steps
@@ -331,7 +395,8 @@ enum AppRemover {
         func targets() -> [NSRunningApplication] {
             NSWorkspace.shared.runningApplications.filter { ra in
                 if ra.processIdentifier == selfPid { return false }
-                if let p = ra.bundleURL?.standardizedFileURL.path, p == appPath || p.hasPrefix(appPath + "/") { return true }
+                if let path = ra.bundleURL?.standardizedFileURL.path,
+                   path == appPath || path.hasPrefix(appPath + "/") { return true }
                 if let bid = ra.bundleIdentifier?.lowercased(),
                    bids.contains(where: { bid == $0 || bid.hasPrefix($0 + ".") }) { return true }
                 return false

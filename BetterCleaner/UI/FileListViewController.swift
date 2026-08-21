@@ -835,7 +835,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.loadingView.stop()
-                self.presentUninstallSummary(app: app, summary: summary)
+                self.presentUninstallSummary(summary)
                 self.onRescanRequested?()
             }
         }
@@ -855,19 +855,19 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         """
     }
 
-    private func presentUninstallSummary(app: InstalledApp, summary: AppRemover.Summary) {
-        // Only interrupt on a problem; success is shown by the rescan emptying.
-        guard summary.cancelled || !summary.failed.isEmpty else { return }
-        let alert = NSAlert()
-        if summary.cancelled {
+    /// Only interrupt on a problem; success is shown by the rescan emptying.
+    private func presentUninstallSummary(_ summary: AppRemover.Summary) {
+        guard !summary.cancelled else {
+            let count = summary.trashed.count
+            let alert = NSAlert()
             alert.messageText = "Uninstall Cancelled"
-            alert.informativeText = "\(summary.trashed.count) item\(summary.trashed.count == 1 ? "" : "s") removed before you cancelled the admin prompt."
-        } else {
-            alert.messageText = "Some Items Couldn't Be Removed"
-            alert.informativeText = "\(summary.trashed.count) removed, \(summary.failed.count) failed (permission denied or in use)."
+            alert.informativeText = "\(count) item\(count == 1 ? "" : "s") removed before you cancelled the admin prompt."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
         }
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        reportIncomplete(summary.removal, verb: "removed",
+                         title: summary.failed.isEmpty ? "Some Items Were Left in Place" : "Some Items Couldn't Be Removed")
     }
 
     // MARK: - NSOutlineViewDataSource

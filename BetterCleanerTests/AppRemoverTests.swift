@@ -94,6 +94,28 @@ import Foundation
         #expect(!AppRemover.privilegedCommands(for: gatedPlan).joined().contains("bootout"))
     }
 
+    /// A partial uninstall used to look exactly like a complete one: the summary
+    /// stayed silent whenever nothing outright failed, so items left behind on
+    /// purpose vanished without a word.
+    @Test func anUninstallThatLeftItemsBehindSaysSo() {
+        let url = URL(fileURLWithPath: "/Library/Foo/x")
+        var partial = AppRemover.Summary()
+        partial.trashed = [url]
+        partial.skipped = [url]
+        #expect(partial.removal.incompleteMessage(verb: "removed")
+            == "1 item was left in place (protected or a link).")
+
+        var readOnly = AppRemover.Summary()
+        readOnly.failed = [url]
+        readOnly.failureReason = "The volume is read only."
+        #expect(readOnly.removal.incompleteMessage(verb: "removed")
+            == "0 removed, 1 failed (The volume is read only).")
+
+        var clean = AppRemover.Summary()
+        clean.trashed = [url]
+        #expect(clean.removal.incompleteMessage(verb: "removed") == nil)
+    }
+
     @Test func unselectedItemsProduceNoCommands() {
         let item = FileItem(url: URL(fileURLWithPath: "/Library/Foo/x"), category: "Application Support",
                             domain: .system, isDirectory: true, isSelected: false)
