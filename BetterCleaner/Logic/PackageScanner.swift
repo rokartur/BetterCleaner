@@ -167,17 +167,13 @@ enum PackageScanner {
     /// on failure, nil on success.
     static func forget(ids: [String]) -> String? {
         guard !ids.isEmpty else { return nil }
-        // ';' so each forget is independent within the single admin prompt.
-        let command = ids
-            .map { "\(pkgutil) --forget \(PrivilegedRunner.quote($0))" }
-            .joined(separator: " ; ")
         do {
-            try PrivilegedRunner.runAdminCommand(command)
+            try PrivilegedRunner.runBatch(ids.map { "\(pkgutil) --forget \(PrivilegedRunner.quote($0))" })
             return nil
         } catch PrivilegedRunner.RunError.cancelled {
             return "cancelled"
         } catch {
-            return "\(error)"
+            return error.localizedDescription
         }
     }
 }

@@ -19,11 +19,16 @@ enum Trasher {
         /// Everything this removal did not finish, or nil when it finished. Skipped
         /// items get their own sentence: they are not failures, but they did not go
         /// anywhere either, and silence about them reads as success. A cancelled
-        /// prompt that moved nothing is not a report — the user knows.
+        /// prompt that moved nothing is not a report — the user knows. Skips are
+        /// the exception: they were decided before anything asked for a password,
+        /// so cancelling does not explain them away.
         func incompleteMessage(verb: String) -> String? {
-            guard !(cancelled && trashed.isEmpty) else { return nil }
             var lines: [String] = []
-            if !failed.isEmpty {
+            // Silence is only right when it would be the whole message. Once there
+            // is a skip line, the sheet lists the failures too, and a summary that
+            // mentions only the skips contradicts the list above it.
+            let cancelIsTheWholeStory = cancelled && trashed.isEmpty && skipped.isEmpty
+            if !failed.isEmpty && !cancelIsTheWholeStory {
                 let fallback = cancelled ? "the administrator prompt was cancelled" : "permission denied or in use"
                 let reason = (failureReason ?? fallback).trimmingCharacters(in: .whitespacesAndNewlines)
                 lines.append("\(trashed.count) \(verb), \(failed.count) failed "
@@ -153,30 +158,41 @@ enum Trasher {
         guard !privilegedPairs.isEmpty else { return outcome(failed: [], cancelled: false) }
 
         // `moveCommands` drops any pair that fails the protected/symlink re-check,
-        // so only record/report the ones it will actually move. Pairs it filtered
-        // out were never moved → report them as failed, never as recoverable.
-        let movableURLs = privilegedURLs.filter { PrivilegedRunner.isSafeToMove($0.path) }
-        let droppedURLs = privilegedURLs.filter { !PrivilegedRunner.isSafeToMove($0.path) }
+        // so only record/report the ones it will actually move. What it filtered
+        // out was left alone on purpose, which is what `skipped` means — never
+        // record it as recoverable, and never call it a failure.
+        // One decision per URL, so the set we report and the set the batch moves
+        // can't disagree if a path changes underneath us.
+        let byMovable = Dictionary(grouping: privilegedURLs) { PrivilegedRunner.isSafeToMove($0.path) }
+        let movableURLs = byMovable[true] ?? []
+        skipped.append(contentsOf: byMovable[false] ?? [])
         let commands = PrivilegedRunner.moveCommands(container: box.path, pairs: privilegedPairs)
-        guard !commands.isEmpty else { return outcome(failed: droppedURLs, cancelled: false) }
-        do {
-            try PrivilegedRunner.runAdminCommand(commands.joined(separator: " ; "))
-            // The batch is one `mv` per file joined by `;`, so its exit status only
-            // speaks for the last one. Ask the disk which files actually arrived
-            // rather than reporting a mid-batch failure as a removal.
+        guard !commands.isEmpty else { return outcome(failed: [], cancelled: false) }
+
+        // The batch is one `mv` per file joined by `;`, so its exit status speaks
+        // only for the last one — and a throw does not mean nothing moved. Every
+        // way out of here asks the disk instead, or a file already sitting in the
+        // Trash gets reported as unremovable and recorded nowhere.
+        func settle(cancelled: Bool) -> Outcome {
             let landedPaths = Set(privilegedPairs.filter { fm.fileExists(atPath: $0.dest) }.map(\.src))
-            let moved = movableURLs.filter { landedPaths.contains($0.path) }
-            trashed.append(contentsOf: moved)
+            trashed.append(contentsOf: movableURLs.filter { landedPaths.contains($0.path) })
             let stranded = movableURLs.filter { !landedPaths.contains($0.path) }
-            if !stranded.isEmpty { failureReason = failureReason ?? "the administrator command did not move them" }
-            return outcome(failed: droppedURLs + stranded, cancelled: false)
-        } catch PrivilegedRunner.RunError.cancelled {
-            return outcome(failed: privilegedURLs, cancelled: true)
-        } catch {
-            if case PrivilegedRunner.RunError.failed(let message) = error {
-                failureReason = failureReason ?? message
+            if !stranded.isEmpty, !cancelled {
+                failureReason = failureReason ?? "the administrator command did not move them"
             }
-            return outcome(failed: privilegedURLs, cancelled: false)
+            return outcome(failed: stranded, cancelled: cancelled)
+        }
+
+        do {
+            try PrivilegedRunner.runBatch(commands)
+            return settle(cancelled: false)
+        } catch PrivilegedRunner.RunError.cancelled {
+            return settle(cancelled: true)
+        } catch {
+            // Through `localizedDescription`, not the raw associated value: that is
+            // where multi-line osascript stderr gets collapsed into a sentence.
+            failureReason = failureReason ?? error.localizedDescription
+            return settle(cancelled: false)
         }
     }
 }

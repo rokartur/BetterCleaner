@@ -1,30 +1,54 @@
 import Foundation
 
-/// Runs a privileged "move to Trash" for system-owned files via one admin
-/// password prompt (Authorization Services through `osascript "do shell script
-/// … with administrator privileges"`). Files are moved into the user's Trash so
-/// the operation stays recoverable.
+/// Runs a batch of shell commands under one admin password prompt
+/// (Authorization Services through `osascript "do shell script … with
+/// administrator privileges"`): file moves, `launchctl bootout`,
+/// `pkgutil --forget`, `rm -f`. `moveCommands` is what keeps removals
+/// recoverable, by moving into the user's Trash rather than unlinking.
 enum PrivilegedRunner {
-    enum RunError: Error {
+    /// `LocalizedError` because every caller surfaces these straight to the user
+    /// as the reason a file was left behind.
+    enum RunError: LocalizedError {
         case cancelled
         case failed(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .cancelled: "the administrator prompt was cancelled"
+            case .failed(let message): Self.oneLine(message)
+            }
+        }
+
+        /// The batch is one `mv` per file joined by `;`, so stderr can be many
+        /// lines. Callers put this inside a sentence, so collapse it to one.
+        private static func oneLine(_ message: String) -> String {
+            let joined = message.split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "; ")
+            if joined.isEmpty { return "the command failed without saying why" }
+            return joined.count > 200 ? joined.prefix(200) + "…" : joined
+        }
     }
 
-    /// Run an arbitrary shell command as administrator (one password prompt).
-    /// Callers must build the command from trusted/quoted input.
-    static func runAdminCommand(_ command: String) throws {
-        try runAdmin(shell: command)
+    /// Run a batch of shell commands as administrator, in ONE password prompt.
+    /// Callers must build each command from trusted/quoted input (`quote`).
+    ///
+    /// Commands are joined with `;` so each runs independently: a failed
+    /// `launchctl bootout` of an already-unloaded job does not abort the file
+    /// moves that follow. That also means the exit status only speaks for the
+    /// last command — callers who need per-item truth must ask the disk.
+    /// Empty commands are dropped; an all-empty batch is a no-op.
+    static func runBatch(_ commands: [String]) throws {
+        let cleaned = commands
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !cleaned.isEmpty else { return }
+        try runAdmin(shell: cleaned.joined(separator: " ; "))
     }
 
     /// Quote a single argument for safe inclusion in an admin shell command.
-    static func quote(_ s: String) -> String { shellQuote(s) }
-
-    /// Move `urls` into the Trash folder `container` in one admin elevation.
-    static func moveToTrash(_ urls: [URL], container: String) throws {
-        let commands = moveCommands(container: container, pairs: urls.map { ($0.path, defaultDest(in: container, for: $0)) })
-        guard !commands.isEmpty else { return }
-        try runAdmin(shell: commands.joined(separator: " ; "))
-    }
+    static func quote(_ text: String) -> String { shellQuote(text) }
 
     /// Build the shell commands that move each `src` to its explicit `dest` (both
     /// inside `container`), without running them — so a caller (`Trasher` /
@@ -53,10 +77,6 @@ enum PrivilegedRunner {
         return (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink != true
     }
 
-    private static func defaultDest(in container: String, for url: URL) -> String {
-        (container as NSString).appendingPathComponent(url.lastPathComponent)
-    }
-
     private static func runAdmin(shell: String) throws {
         let source = "do shell script \(appleScriptString(shell)) with administrator privileges"
 
@@ -65,29 +85,34 @@ enum PrivilegedRunner {
         process.arguments = ["-e", source]
         let errorPipe = Pipe()
         process.standardError = errorPipe
-        process.standardOutput = Pipe()
+        // Nothing reads the script's stdout, and an undrained pipe deadlocks the
+        // app once the batch fills its 64 KB buffer — hundreds of `mv`s do.
+        process.standardOutput = FileHandle.nullDevice
 
         try process.run()
+        // Drain before waiting, for the same reason.
+        let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
 
         guard process.terminationStatus != 0 else { return }
-        let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
         let message = String(data: data, encoding: .utf8) ?? ""
-        // -128 = user cancelled the authentication dialog.
-        if message.contains("-128") || message.lowercased().contains("cancel") {
+        // -128 = user cancelled the authentication dialog. Match osascript's own
+        // wording only: file paths reach this text, and one named "cancelled"
+        // would otherwise turn a permission failure into a silent "never mind".
+        if message.contains("-128") || message.contains("User canceled") {
             throw RunError.cancelled
         }
         throw RunError.failed(message)
     }
 
     /// Single-quote a string for `/bin/sh`.
-    private static func shellQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    private static func shellQuote(_ text: String) -> String {
+        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// Produce a double-quoted AppleScript string literal.
-    private static func appleScriptString(_ s: String) -> String {
-        var out = s.replacingOccurrences(of: "\\", with: "\\\\")
+    private static func appleScriptString(_ text: String) -> String {
+        var out = text.replacingOccurrences(of: "\\", with: "\\\\")
         out = out.replacingOccurrences(of: "\"", with: "\\\"")
         return "\"" + out + "\""
     }

@@ -64,7 +64,7 @@ final class HomebrewMaintenanceViewController: NSViewController {
             $0.alignment = .center
         }
 
-        configureLog(doctorTextView, in: doctorScrollView)
+        LogView.configure(doctorTextView, in: doctorScrollView, accessibilityLabel: "Doctor output")
         analyticsSwitch.target = self
         analyticsSwitch.action = #selector(analyticsChanged)
         analyticsSwitch.toolTip = "Enable or disable Homebrew's anonymous analytics preference."
@@ -99,6 +99,7 @@ final class HomebrewMaintenanceViewController: NSViewController {
         doctorBody.alignment = .leading
         doctorBody.spacing = Spacing.sm
         doctorScrollView.widthAnchor.constraint(equalTo: doctorBody.widthAnchor).isActive = true
+        doctorScrollView.heightAnchor.constraint(equalToConstant: 170).isActive = true
         let doctorSection = section(
             title: "Doctor",
             subtitle: "Homebrew's diagnostic result, complete output, and process exit status.",
@@ -428,31 +429,6 @@ final class HomebrewMaintenanceViewController: NSViewController {
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
         label.isSelectable = true
-    }
-
-    private func configureLog(_ textView: NSTextView, in scrollView: NSScrollView) {
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.drawsBackground = true
-        textView.backgroundColor = .textBackgroundColor
-        textView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        textView.textContainerInset = NSSize(width: Spacing.sm, height: Spacing.sm)
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.textContainer?.widthTracksTextView = true
-        textView.autoresizingMask = [.width]
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.hasVerticalScroller = true
-        scrollView.borderType = .bezelBorder
-        scrollView.drawsBackground = true
-        scrollView.documentView = textView
-        scrollView.heightAnchor.constraint(equalToConstant: 170).isActive = true
     }
 
     private func section(title: String, subtitle: String, actions: [NSView] = [], body: NSView) -> NSView {

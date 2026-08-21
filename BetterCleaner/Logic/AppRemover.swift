@@ -4,7 +4,7 @@ import AppKit
 /// quitting the running process, unloading its launchd jobs (so a daemon can't
 /// respawn its data), resetting its privacy permissions, forgetting its package
 /// receipts, and clearing its Keychain items. Every privileged action is folded
-/// into a single elevation via `PrivilegedExecutor`.
+/// into a single elevation via `PrivilegedRunner.runBatch`.
 ///
 /// Pure of UI; run off the main thread. Reports a per-step `Summary` so the caller
 /// can show what happened. File moves go to the Trash (recoverable); the
@@ -139,7 +139,7 @@ enum AppRemover {
 
         if !privileged.isEmpty {
             do {
-                try PrivilegedExecutor.runBatch(privileged)
+                try PrivilegedRunner.runBatch(privileged)
                 // The batch is one command per file, so its exit status only speaks
                 // for the last one. Ask the disk which paths are actually gone
                 // (lstat, so a surviving broken symlink still counts as present).
@@ -154,7 +154,7 @@ enum AppRemover {
                 if !part.receiptIDs.isEmpty {
                     stepResults[.forgetReceipts] = StepResult(step: .forgetReceipts, outcome: .done, detail: "\(part.receiptIDs.count) forgotten")
                 }
-            } catch PrivilegedExecutor.ExecError.cancelled {
+            } catch PrivilegedRunner.RunError.cancelled {
                 summary.cancelled = true
                 summary.failed.append(contentsOf: batchSystemURLs)
                 if !part.receiptIDs.isEmpty {

@@ -735,7 +735,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
                 guard let self else { return }
                 self.loadingView.stop()
                 self.pruneLanguagesButton.isEnabled = true
-                self.reportIncomplete(outcome, verb: "removed", title: "Some Languages Couldn't Be Removed")
+                RemovalReportViewController.present(outcome, verb: "removed", noun: "Languages", from: self)
                 self.removeTrashedItems(outcome.trashed)
             }
         }
@@ -749,15 +749,6 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         } else {
             runPlainTrash(selected)
         }
-    }
-
-    private func reportIncomplete(_ outcome: Trasher.Outcome, verb: String, title: String) {
-        guard let message = outcome.incompleteMessage(verb: verb) else { return }
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
     }
 
     private func runPlainTrash(_ selected: [FileItem]) {
@@ -791,7 +782,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
                 self.loadingView.stop()
                 self.trashButton.isEnabled = true
                 self.selectAllButton.isEnabled = true
-                self.reportIncomplete(outcome, verb: "moved to Trash", title: "Some Items Couldn't Be Removed")
+                RemovalReportViewController.present(outcome, verb: "moved to Trash", noun: "Items", from: self)
                 self.removeTrashedItems(outcome.trashed)
             }
         }
@@ -857,17 +848,18 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
 
     /// Only interrupt on a problem; success is shown by the rescan emptying.
     private func presentUninstallSummary(_ summary: AppRemover.Summary) {
-        guard !summary.cancelled else {
+        // A cancelled uninstall is the run most likely to leave root-owned files
+        // behind, so it gets the list too, not just the count. Modal alert first,
+        // or it opens on top of a sheet still animating in.
+        if summary.cancelled {
             let count = summary.trashed.count
             let alert = NSAlert()
             alert.messageText = "Uninstall Cancelled"
             alert.informativeText = "\(count) item\(count == 1 ? "" : "s") removed before you cancelled the admin prompt."
             alert.addButton(withTitle: "OK")
             alert.runModal()
-            return
         }
-        reportIncomplete(summary.removal, verb: "removed",
-                         title: summary.failed.isEmpty ? "Some Items Were Left in Place" : "Some Items Couldn't Be Removed")
+        RemovalReportViewController.present(summary.removal, verb: "removed", noun: "Items", from: self)
     }
 
     // MARK: - NSOutlineViewDataSource

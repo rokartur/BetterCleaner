@@ -260,16 +260,16 @@ final class PackageDetailViewController: NSViewController, NSTableViewDataSource
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.loadingView.stop()
-                // A left-behind item is worth reporting, but it must not swallow the
-                // receipt's own outcome: those are two independent things.
-                if let message = outcome?.incompleteMessage(verb: "moved to Trash") {
-                    let failed = outcome?.failed.isEmpty == false
-                    self.alertFailure(failed ? "Some Files Couldn't Be Removed" : "Some Files Were Left in Place", message)
-                }
+                // The receipt's own outcome is a separate matter from a left-behind
+                // file, and its alert is app-modal: run it first, or it opens on top
+                // of a sheet that is still animating in.
                 if appRemains {
                     self.alertFailure("Receipt Kept", "Files were moved to the Trash, but the receipt was kept because the app bundle is still installed. Remove the app to forget the receipt.")
                 } else if let forgetError, forgetError != "cancelled" {
                     self.alertFailure("Couldn't Forget Receipt", forgetError)
+                }
+                if let outcome {
+                    RemovalReportViewController.present(outcome, verb: "moved to Trash", noun: "Files", from: self)
                 }
                 self.onChanged?()
             }

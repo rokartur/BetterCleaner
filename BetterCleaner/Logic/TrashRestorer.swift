@@ -2,7 +2,7 @@ import Foundation
 
 /// Restores files recorded by `TrashHistory` from the Trash back to their
 /// original locations. User-domain files move with `FileManager`; system-domain
-/// files move in one privileged batch (`PrivilegedExecutor`).
+/// files move in one privileged batch (`PrivilegedRunner.runBatch`).
 ///
 /// Never clobbers a re-created original (`restorable` excludes occupied targets;
 /// `FileManager.moveItem` itself refuses to overwrite), and never restores onto a
@@ -52,9 +52,9 @@ enum TrashRestorer {
         guard !commands.isEmpty else { return result }
 
         do {
-            try PrivilegedExecutor.runBatch(commands)
+            try PrivilegedRunner.runBatch(commands)
             result.restored.append(contentsOf: systemRecords.map(\.originalPath))
-        } catch PrivilegedExecutor.ExecError.cancelled {
+        } catch PrivilegedRunner.RunError.cancelled {
             result.cancelled = true
             result.failed.append(contentsOf: systemRecords.map(\.originalPath))
         } catch {

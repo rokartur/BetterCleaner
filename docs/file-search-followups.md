@@ -40,3 +40,32 @@ Wszystkie BLOCKERy i SHOULD-FIX są naprawione.
   długi już wcześniej, ta zmiana go nie powiększyła w istotny sposób.
 - `SpotlightAssociatesTests.declaredExecutableAndAlternateNamesAreSignals` pada
   na `HEAD` bez tych zmian. Zweryfikowane na odłożonym stashu.
+
+## Z rundy review raportu usuwania (2 runda)
+
+- `TrashRestorer.restore` po udanym batchu oznacza wszystkie rekordy systemowe
+  jako przywrócone, nie pytając dysku. Batch to `mv`-y sklejone `;`, więc status
+  wyjścia mówi tylko o ostatnim. `Trasher` i `AppRemover` już to robią dobrze
+  (re-stat po fakcie). Błąd istnieje przed tą zmianą.
+- `AppRemover.Summary.results` / `StepResult` nikt nie czyta — martwe już na
+  HEAD, nie zostało osierocone przez tę zmianę. Albo dać temu czytelnika w
+  raporcie, albo skasować.
+- Bliźniak poprawki z `Trasher`: w `AppRemover.uninstall` te `part.systemURLs`,
+  które `moveCommands` odrzuci na re-checku (protected/symlink), trafiają do
+  `summary.failed` zamiast do `skipped`. Dotyczy tylko systemURLs — `escalated`
+  przechodzi przez `trashUserItems`, które protected i symlinki odsiewa
+  wcześniej. Nie zrobione, bo `uninstall` ma dokładnie 100 linii i jest to próg
+  błędu SwiftLinta: sensowne dopiero razem z wydzieleniem bloku batcha.
+
+## Z rundy 3
+
+- `PrivilegedRunner.quote` to jednolinijkowe opakowanie prywatnego `shellQuote`:
+  dwie nazwy na jedną funkcję. Scalić przy okazji.
+- `AppRemover.Summary` powiela pięć pól `Trasher.Outcome` i adaptuje je z
+  powrotem właściwością `removal`. Trzymać jedno `Outcome` w środku — opłacalne
+  dopiero, gdy `Outcome` dostanie kolejne pole, bo to ~12 miejsc dostępu.
+- `PackageScanner.forget` zwraca `String?` z wartownikiem `"cancelled"`,
+  porównywanym tekstowo w dwóch miejscach `PackageDetailViewController`,
+  chociaż `RunError.cancelled` już to wyraża. Zrobić `throws`.
+- Wyliczanie tytułu w `RemovalReportViewController.present` nie ma testu; to
+  jedno wyrażenie, dałoby się wyciągnąć do `title(for:noun:)`.

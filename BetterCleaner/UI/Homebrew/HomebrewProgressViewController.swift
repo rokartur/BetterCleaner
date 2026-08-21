@@ -22,7 +22,6 @@ final class HomebrewProgressViewController: NSViewController {
     private var nextPlanIndex = 0
     private var allSucceeded = true
 
-    private static let logFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
 
     init(title: String, plans: [HomebrewCommandPlan], onComplete: ((Bool) -> Void)? = nil) {
         self.plans = plans
@@ -51,28 +50,7 @@ final class HomebrewProgressViewController: NSViewController {
         spinner.isDisplayedWhenStopped = false
         spinner.setAccessibilityElement(false)
 
-        // The log is the sheet's content, not decoration: name it so VoiceOver can
-        // reach the command output instead of announcing an unlabelled text area.
-        textView.setAccessibilityLabel("Command output")
-
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.drawsBackground = true
-        textView.backgroundColor = .textBackgroundColor
-        textView.font = Self.logFont
-        textView.textContainerInset = NSSize(width: 6, height: 6)
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.textContainer?.widthTracksTextView = true
-        textView.autoresizingMask = [.width]
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.hasVerticalScroller = true
-        scrollView.borderType = .bezelBorder
-        scrollView.drawsBackground = true
-        scrollView.documentView = textView
+        LogView.configure(textView, in: scrollView, accessibilityLabel: "Command output")
 
         let header = NSStackView(views: [spinner, titleLabel])
         header.orientation = .horizontal
@@ -161,7 +139,7 @@ final class HomebrewProgressViewController: NSViewController {
     private func append(_ text: String) {
         textView.textStorage?.append(NSAttributedString(
             string: text,
-            attributes: [.font: Self.logFont, .foregroundColor: NSColor.labelColor]
+            attributes: [.font: LogView.font, .foregroundColor: NSColor.labelColor]
         ))
         textView.scrollToEndOfDocument(nil)
     }
