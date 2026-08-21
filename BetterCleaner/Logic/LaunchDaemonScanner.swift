@@ -90,9 +90,9 @@ enum LaunchDaemonScanner {
     /// flag jobs whose program no longer exists on disk.
     static func programPath(of url: URL) -> String? {
         guard let plist = plist(of: url) else { return nil }
-        if let p = plist["Program"] as? String, !p.isEmpty { return p }
+        if let program = plist["Program"] as? String, !program.isEmpty { return program }
         if let args = plist["ProgramArguments"] as? [String], let first = args.first, !first.isEmpty { return first }
-        if let bp = plist["BundleProgram"] as? String, !bp.isEmpty { return bp }
+        if let bundled = plist["BundleProgram"] as? String, !bundled.isEmpty { return bundled }
         return nil
     }
 
@@ -103,10 +103,4 @@ enum LaunchDaemonScanner {
         return plist
     }
 
-    static func remove(_ items: [LaunchItem]) -> Trasher.Outcome {
-        let fileItems = items
-            .filter { $0.isRemovable }
-            .map { FileItem(url: $0.url, category: "LaunchItem", domain: $0.domain, isDirectory: false, size: 0, isSelected: true) }
-        return Trasher.trash(fileItems, origin: "Launch Items")
-    }
 }

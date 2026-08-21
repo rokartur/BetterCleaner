@@ -735,14 +735,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
                 guard let self else { return }
                 self.loadingView.stop()
                 self.pruneLanguagesButton.isEnabled = true
-                if outcome.cancelled && outcome.trashed.isEmpty { return }
-                if !outcome.failed.isEmpty {
-                    let alert = NSAlert()
-                    alert.messageText = "Some Languages Couldn't Be Removed"
-                    alert.informativeText = "\(outcome.trashed.count) removed, \(outcome.failed.count) failed (permission denied or in use)."
-                    alert.addButton(withTitle: "OK")
-                    alert.runModal()
-                }
+                self.reportIncomplete(outcome, verb: "removed", title: "Some Languages Couldn't Be Removed")
                 self.removeTrashedItems(outcome.trashed)
             }
         }
@@ -758,6 +751,15 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         }
     }
 
+    private func reportIncomplete(_ outcome: Trasher.Outcome, verb: String, title: String) {
+        guard let message = outcome.incompleteMessage(verb: verb) else { return }
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     private func runPlainTrash(_ selected: [FileItem]) {
         // System-domain files are removed with administrator rights, so they are
         // confirmed even when the user turned confirmations off — one stray click on
@@ -770,7 +772,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
             alert.informativeText = "Total size: \(FileSize.string(bytes)). Items can be restored from the Trash."
                 + (systemCount > 0
                     ? "\n\n\(systemCount) item\(systemCount == 1 ? " is" : "s are") outside your home folder "
-                        + "and will need an administrator password."
+                        + "and may need an administrator password."
                     : "")
             Buttons.addDestructiveConfirmation("Move to Trash", to: alert)
             guard alert.runModal() == .alertFirstButtonReturn else { return }
@@ -789,14 +791,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
                 self.loadingView.stop()
                 self.trashButton.isEnabled = true
                 self.selectAllButton.isEnabled = true
-                if outcome.cancelled && outcome.trashed.isEmpty { return }
-                if !outcome.failed.isEmpty {
-                    let alert = NSAlert()
-                    alert.messageText = "Some Items Couldn't Be Removed"
-                    alert.informativeText = "\(outcome.trashed.count) moved to Trash, \(outcome.failed.count) failed (permission denied or in use)."
-                    alert.addButton(withTitle: "OK")
-                    alert.runModal()
-                }
+                self.reportIncomplete(outcome, verb: "moved to Trash", title: "Some Items Couldn't Be Removed")
                 self.removeTrashedItems(outcome.trashed)
             }
         }

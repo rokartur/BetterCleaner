@@ -7,6 +7,19 @@ import Foundation
 enum TrashBox {
     static var trashRoot: URL { URL(fileURLWithPath: NSHomeDirectory() + "/.Trash") }
 
+    /// Whether `url` lives on the same volume as the user's Trash. A move to
+    /// another volume is silently a copy, so a file on an external drive would be
+    /// hauled onto the boot disk instead of into that drive's own Trash.
+    /// Unknown volumes answer `true`, keeping the ordinary path.
+    static func isOnTrashVolume(_ url: URL) -> Bool {
+        guard let itemVolume = volumeID(of: url), let trashVolume = volumeID(of: trashRoot) else { return true }
+        return itemVolume.isEqual(trashVolume)
+    }
+
+    private static func volumeID(of url: URL) -> (any NSObjectProtocol)? {
+        (try? url.resourceValues(forKeys: [.volumeIdentifierKey]))?.volumeIdentifier
+    }
+
     /// The folder name for a removal: `<origin> — <date>`, path-safe. Pure.
     static func folderName(origin: String, at date: Date) -> String {
         "\(sanitize(origin)) — \(stamp(date))"
@@ -18,10 +31,10 @@ enum TrashBox {
         let fm = FileManager.default
         let base = folderName(origin: origin, at: date)
         var name = base
-        var n = 2
+        var suffix = 2
         while fm.fileExists(atPath: trashRoot.appendingPathComponent(name).path) {
-            name = "\(base) (\(n))"
-            n += 1
+            name = "\(base) (\(suffix))"
+            suffix += 1
         }
         let box = trashRoot.appendingPathComponent(name)
         do {
@@ -40,26 +53,26 @@ enum TrashBox {
         var candidate = safeName
         let stem = (safeName as NSString).deletingPathExtension
         let ext = (safeName as NSString).pathExtension
-        var n = 2
+        var suffix = 2
         while used.contains(candidate.lowercased())
             || FileManager.default.fileExists(atPath: box.appendingPathComponent(candidate).path) {
-            candidate = ext.isEmpty ? "\(stem) (\(n))" : "\(stem) (\(n)).\(ext)"
-            n += 1
+            candidate = ext.isEmpty ? "\(stem) (\(suffix))" : "\(stem) (\(suffix)).\(ext)"
+            suffix += 1
         }
         used.insert(candidate.lowercased())
         return candidate
     }
 
-    private static func sanitize(_ s: String) -> String {
-        let cleaned = s.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+    private static func sanitize(_ origin: String) -> String {
+        let cleaned = origin.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
         let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "BetterCleaner" : trimmed
     }
 
     private static func stamp(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        return f.string(from: date)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        return formatter.string(from: date)
     }
 }
