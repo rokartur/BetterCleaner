@@ -12,10 +12,20 @@ enum FileSize {
     /// can't express this and reports `0` for an unreadable 2 GB folder — which
     /// for an uninstaller reads as "nothing here" and erodes trust. Callers that
     /// surface sizes to the user should prefer this and mark approximate totals.
-    static func sizeWithStatus(of url: URL) -> (bytes: Int64, complete: Bool) {
+    static func sizeWithStatus(
+        of url: URL,
+        isCancelled: () -> Bool = { false }
+    ) -> (bytes: Int64, complete: Bool) {
+        guard !isCancelled() else { return (0, false) }
         let fm = FileManager.default
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else { return (0, true) }
+        // `fileExists` and the resource keys below both follow links, so without
+        // this a CLI shim in /usr/local/bin or a shell-completion link reports the
+        // size of the app bundle the scan already lists, double-counting it.
+        guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true else {
+            return (0, true)
+        }
 
         if !isDir.boolValue {
             return allocatedSize(url)
@@ -23,7 +33,11 @@ enum FileSize {
 
         var total: Int64 = 0
         var complete = true
-        let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .isRegularFileKey]
+        // Must list every key `allocatedSize` reads: an unprefetched key costs an
+        // extra stat per entry, which is the whole walk again on a large tree.
+        let keys: [URLResourceKey] = [
+            .totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .isRegularFileKey, .isSymbolicLinkKey,
+        ]
         // errorHandler runs synchronously on this thread during enumeration, so
         // capturing `complete` is safe; returning true keeps walking past the
         // failed entry instead of aborting the whole directory.
@@ -35,6 +49,10 @@ enum FileSize {
         ) else { return (0, false) }
 
         for case let fileURL as URL in enumerator {
+            if isCancelled() {
+                complete = false
+                break
+            }
             let (bytes, ok) = allocatedSize(fileURL)
             total += bytes
             if !ok { complete = false }
@@ -45,9 +63,11 @@ enum FileSize {
     /// (allocated bytes, readable). `readable == false` when resource values
     /// can't be fetched for an existing entry.
     private static func allocatedSize(_ url: URL) -> (bytes: Int64, complete: Bool) {
-        let keys: Set<URLResourceKey> = [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .isRegularFileKey]
+        let keys: Set<URLResourceKey> = [
+            .totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .isRegularFileKey, .isSymbolicLinkKey,
+        ]
         guard let values = try? url.resourceValues(forKeys: keys) else { return (0, false) }
-        if values.isRegularFile == false { return (0, true) }
+        if values.isSymbolicLink == true || values.isRegularFile == false { return (0, true) }
         return (Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0), true)
     }
 

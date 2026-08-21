@@ -8,6 +8,8 @@ import Foundation
         #expect(Locations.categoryOrder.contains("Caches"))
         #expect(Locations.categoryOrder.contains("Preferences"))
         #expect(Locations.categoryOrder.contains("Containers"))
+        #expect(Locations.categoryOrder.contains("Frameworks"))
+        #expect(Locations.categoryOrder.contains("Scripting Additions"))
     }
 
     @Test func userLocationsAreUserDomain() {
@@ -27,7 +29,12 @@ import Foundation
 
 @Suite struct InstalledAppsIndexTests {
     private let index = InstalledAppsIndex(apps: [
-        InstalledApp(url: URL(fileURLWithPath: "/Applications/Foo.app"), bundleID: "com.foo.Bar", name: "Bar", isSystem: false),
+        InstalledApp(
+            url: URL(fileURLWithPath: "/Applications/Foo.app"),
+            bundleID: "com.foo.Bar",
+            name: "Bar",
+            isSystem: false
+        )
     ])
 
     @Test func ownsExactAndSuffixedIdentifiers() {
@@ -42,23 +49,69 @@ import Foundation
     }
 
     @Test func ownsNestedHelperIdentifiers() {
-        let idx = InstalledAppsIndex(apps: [
-            InstalledApp(url: URL(fileURLWithPath: "/Applications/Foo.app"),
-                         bundleID: "com.foo.Bar", name: "Bar",
-                         extraBundleIDs: ["com.foo.Helper"], isSystem: false),
+        let index = InstalledAppsIndex(apps: [
+            InstalledApp(
+                url: URL(fileURLWithPath: "/Applications/Foo.app"),
+                bundleID: "com.foo.Bar",
+                name: "Bar",
+                extraBundleIDs: ["com.foo.Helper"],
+                isSystem: false
+            )
         ])
-        #expect(idx.ownsIdentifier("com.foo.Helper"))
-        #expect(idx.ownsIdentifier("com.foo.Helper.xpc"))
-        #expect(!idx.ownsIdentifier("com.foo.Other"))
+        #expect(index.ownsIdentifier("com.foo.Helper"))
+        #expect(index.ownsIdentifier("com.foo.Helper.xpc"))
+        #expect(!index.ownsIdentifier("com.foo.Other"))
+    }
+}
+
+@Suite struct CancellationTests {
+    @Test func fileSizeStopsBeforeReadingWhenCancelled() throws {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try Data(repeating: 1, count: 1024).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        let result = FileSize.sizeWithStatus(of: file, isCancelled: { true })
+
+        #expect(result.bytes == 0)
+        #expect(!result.complete)
+    }
+
+    @Test func commandRunnerTerminatesCancelledProcess() {
+        var cancellationChecks = 0
+        let output = CommandRunner.run("/bin/sleep", ["5"]) {
+            cancellationChecks += 1
+            return cancellationChecks > 1
+        }
+
+        #expect(output.status == CommandRunner.cancelledStatus)
     }
 }
 
 @Suite struct ScanSectionTests {
     @Test func sectionsAreOrderedAndSizeSorted() {
         let items = [
-            FileItem(url: URL(fileURLWithPath: "/a/Caches/x"), category: "Caches", domain: .user, isDirectory: false, size: 10),
-            FileItem(url: URL(fileURLWithPath: "/a/Caches/y"), category: "Caches", domain: .user, isDirectory: false, size: 100),
-            FileItem(url: URL(fileURLWithPath: "/a/App"), category: "Application", domain: .user, isDirectory: true, size: 5),
+            FileItem(
+                url: URL(fileURLWithPath: "/a/Caches/x"),
+                category: "Caches",
+                domain: .user,
+                isDirectory: false,
+                size: 10
+            ),
+            FileItem(
+                url: URL(fileURLWithPath: "/a/Caches/y"),
+                category: "Caches",
+                domain: .user,
+                isDirectory: false,
+                size: 100
+            ),
+            FileItem(
+                url: URL(fileURLWithPath: "/a/App"),
+                category: "Application",
+                domain: .user,
+                isDirectory: true,
+                size: 5
+            )
         ]
         let sections = LeftoverScanner.sections(from: items)
         // "Application" sorts before "Caches" per categoryOrder.
