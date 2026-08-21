@@ -252,6 +252,8 @@ final class MainSplitViewController: NSSplitViewController {
                 self.installedApps = apps
                 self.appListVC.reload(with: apps)
             }
+            // Reading every receipt BOM here means the first scan does not pay for it.
+            PackageOwnership.prewarm()
         }
         if container.current === orphanedVC { orphanedVC.rescan() }
     }
@@ -310,14 +312,20 @@ final class MainSplitViewController: NSSplitViewController {
         let sensitivity = Preferences.shared.searchSensitivity
         let includeSystem = Preferences.shared.includeSystemFiles
         let otherApps = installedApps
+        let extraRoots = Preferences.shared.extraScanURLs
         let excluded = ScanExclusions.set(from: Preferences.shared.orphanExclusionURLs)
         let conditions = Preferences.shared.enabledConditions
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            // The Finder extension deep-links straight into a scan, which on a cold
+            // launch happens before the first app refresh lands. Suite-package
+            // safety is derived from this inventory, so an empty one gets filled in
+            // rather than scanned around.
+            let inventory = otherApps.isEmpty ? AppFinder.installedApps(extraRoots: extraRoots) : otherApps
             let items = LeftoverScanner.scan(
                 app: app,
                 sensitivity: sensitivity,
                 includeSystem: includeSystem,
-                otherApps: otherApps,
+                otherApps: inventory,
                 excluded: excluded,
                 conditions: conditions,
                 isCancelled: { token.isCancelled }

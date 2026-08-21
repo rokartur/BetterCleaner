@@ -48,11 +48,11 @@ enum PackageScanner {
         // data-race-free) instead of N serial spawns.
         var slots = [PackageReceipt?](repeating: nil, count: ids.count)
         slots.withUnsafeMutableBufferPointer { buffer in
-            DispatchQueue.concurrentPerform(iterations: ids.count) { i in
-                let id = ids[i]
+            DispatchQueue.concurrentPerform(iterations: ids.count) { index in
+                let id = ids[index]
                 let info = CommandRunner.run(pkgutil, ["--pkg-info", id]).stdout
                 let parsed = parsePkgInfo(info)
-                buffer[i] = PackageReceipt(id: id, version: parsed.version, installLocation: parsed.location, installDate: installDate(fromPkgInfo: info))
+                buffer[index] = PackageReceipt(id: id, version: parsed.version, installLocation: parsed.location, installDate: installDate(fromPkgInfo: info))
             }
         }
         return slots.compactMap { $0 }.sorted { $0.id.localizedCaseInsensitiveCompare($1.id) == .orderedAscending }
@@ -75,14 +75,24 @@ enum PackageScanner {
     /// `.bom` via `lsbom` and made absolute against the receipt's install root.
     /// Read-only; needs Full Disk Access to read `/var/db/receipts`.
     static func bomFiles(id: String) -> [URL] {
+        PackageBOMFilter.filter(rawBOMFiles(id: id).map(\.path))
+            .map { URL(fileURLWithPath: $0) }
+    }
+
+    /// Uncollapsed BOM paths. Package ownership needs these to discover every
+    /// top-level `.app` before a parent directory collapses its descendants.
+    static func rawBOMFiles(id: String, isCancelled: (() -> Bool)? = nil) -> [URL] {
         let bomPath = "\(receiptsDir)/\(id).bom"
         guard FileManager.default.fileExists(atPath: bomPath),
               FileManager.default.isExecutableFile(atPath: lsbom) else { return [] }
-        let root = installRoot(fromPkgInfo: CommandRunner.run(pkgutil, ["--pkg-info", id]).stdout)
-        let out = CommandRunner.run(lsbom, ["-p", "f", bomPath])
+        // Without the install root every path would be resolved against "/", so a
+        // failed lookup has to abort rather than invent an ownership claim.
+        let pkgInfo = CommandRunner.run(pkgutil, ["--pkg-info", id], isCancelled: isCancelled)
+        guard pkgInfo.ok else { return [] }
+        let root = installRoot(fromPkgInfo: pkgInfo.stdout)
+        let out = CommandRunner.run(lsbom, ["-p", "f", bomPath], isCancelled: isCancelled)
         guard out.ok else { return [] }
-        let absolute = absolutePaths(fromLsbom: out.stdout, root: root)
-        return PackageBOMFilter.filter(absolute).map { URL(fileURLWithPath: $0) }
+        return absolutePaths(fromLsbom: out.stdout, root: root).map { URL(fileURLWithPath: $0) }
     }
 
     /// Make `lsbom -p f` relative paths (`./Applications/Foo.app`) absolute under

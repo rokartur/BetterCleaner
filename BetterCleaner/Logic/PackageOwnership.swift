@@ -1,83 +1,151 @@
 import Foundation
 
-/// Ground-truth ownership from installer receipts: which files an app's `.pkg`
-/// actually wrote, per its Bill of Materials (BOM).
-///
-/// The lexical matcher (`FileMatcher`) infers ownership from names and bundle ids
-/// — strong, but a heuristic. For pkg-installed apps the BOM is *authoritative*:
-/// it lists the exact paths the installer laid down, with no false positives and
-/// no name-based misses. `LeftoverScanner` folds these in as pre-selected,
-/// de-duped against the lexical results, so the BOM only *adds* the installer
-/// files an app-name/bundle-id walk can't see (oddly-named data files, daemon
-/// configs in non-vendor directories, helpers without the app's name).
-///
-/// The app→package association is itself ground truth: a package owns the app when
-/// its BOM lists the app's own `.app` bundle. The index is built once per session
-/// (every non-Apple BOM read concurrently) and reused, since receipts rarely
-/// change while the app is open.
+/// Installer-receipt evidence for files written alongside an application.
+/// A receipt proves package ownership, not exclusive application ownership: one
+/// package may install a suite. Shared-package files are therefore review-only,
+/// and sibling application bundles are never offered for removal.
 enum PackageOwnership {
-    private static let lock = NSLock()
-    private static var cached: [String: [URL]]?
-
-    /// The installer-written files owned by `app` (its package's BOM, minus the app
-    /// bundle itself, which the scanner adds separately). Already safety-filtered
-    /// and bundle-collapsed by `PackageBOMFilter`. Empty for drag-installed apps
-    /// (no receipt) and when receipts can't be read.
-    static func ownedFiles(for app: InstalledApp) -> [URL] {
-        let key = app.url.standardizedFileURL.path.lowercased()
-        let appPath = app.url.standardizedFileURL.path
-        let files = index()[key] ?? []
-        guard !files.isEmpty else { return [] }
-        var seen = Set<String>()
-        var out: [URL] = []
-        for url in files {
-            let std = url.standardizedFileURL.path
-            if std == appPath { continue }
-            if seen.insert(std).inserted { out.append(url) }
-        }
-        return out
+    struct PackageRecord: Equatable {
+        let id: String
+        let files: [URL]
+        let appPaths: [String]
     }
 
-    /// Drop the cached index so the next lookup rebuilds it — call after an
-    /// uninstall/forget that changes the receipt store.
+    struct OwnedFile: Equatable {
+        let url: URL
+        let isExclusiveToApp: Bool
+    }
+
+    struct Result: Equatable {
+        let files: [OwnedFile]
+        let removableReceiptIDs: [String]
+        /// Receipts this app appears in that also own a sibling application, so
+        /// `pkgutil --forget` must not be offered for them.
+        let sharedReceiptIDs: [String]
+    }
+
+    private static let lock = NSLock()
+    private static var cachedRecords: [PackageRecord]?
+
+    static func ownership(
+        for app: InstalledApp,
+        otherApps: [InstalledApp],
+        isCancelled: (() -> Bool)? = nil
+    ) -> Result {
+        resolve(
+            appPath: app.url.path,
+            records: records(isCancelled: isCancelled),
+            installedAppPaths: otherApps.map(\.url.path)
+        )
+    }
+
+    static func prewarm() {
+        _ = records()
+    }
+
+    /// Pure association step kept separate from receipt I/O so suite-package
+    /// safety can be verified without reading the machine's package database.
+    ///
+    /// `installedAppPaths` is what separates a suite from a single product: only
+    /// a bundle that is itself an installed application counts as a sibling. An
+    /// app's own helper or updater `.app` is not one, so it stays removable
+    /// instead of turning the whole package review-only and hiding itself.
+    static func resolve(
+        appPath: String,
+        records: [PackageRecord],
+        installedAppPaths: [String]
+    ) -> Result {
+        let selected = standardizedKey(appPath)
+        let installed = Set(installedAppPaths.map(standardizedKey)).subtracting([selected])
+        var files: [String: OwnedFile] = [:]
+        var receiptIDs = Set<String>()
+        var sharedIDs = Set<String>()
+
+        for record in records where record.appPaths.contains(where: { standardizedKey($0) == selected }) {
+            let others = Set(record.appPaths.map(standardizedKey)).subtracting([selected])
+            // An empty inventory means the caller does not know what is installed,
+            // not that nothing else is. Reading it as "no siblings" would call a
+            // suite package exclusive and offer a live app for deletion, so fall
+            // back to treating every other bundle in the receipt as a sibling.
+            let siblings = installed.isEmpty ? others : others.intersection(installed)
+            let isExclusive = siblings.isEmpty
+            if isExclusive { receiptIDs.insert(record.id) } else { sharedIDs.insert(record.id) }
+
+            for url in record.files {
+                let path = url.standardizedFileURL.path
+                let key = path.lowercased()
+                if key == selected || siblings.contains(where: { key == $0 || key.hasPrefix($0 + "/") }) { continue }
+
+                if let existing = files[key] {
+                    files[key] = OwnedFile(
+                        url: existing.url,
+                        isExclusiveToApp: existing.isExclusiveToApp && isExclusive
+                    )
+                } else {
+                    files[key] = OwnedFile(url: url, isExclusiveToApp: isExclusive)
+                }
+            }
+        }
+
+        // `ReceiptScanner.matchingIDs` also matches lexically, so a receipt whose
+        // BOM never mentions this app (`com.parallels` vs `com.parallels.desktop`)
+        // still gets listed. If it owns another installed app it must not arrive
+        // pre-selected: a selected receipt row is `pkgutil --forget`.
+        for record in records where !record.appPaths.contains(where: { standardizedKey($0) == selected }) {
+            let others = Set(record.appPaths.map(standardizedKey)).subtracting([selected])
+            if installed.isEmpty ? !others.isEmpty : !others.isDisjoint(with: installed) {
+                sharedIDs.insert(record.id)
+            }
+        }
+
+        return Result(
+            files: files.values.sorted { $0.url.path < $1.url.path },
+            removableReceiptIDs: receiptIDs.sorted(),
+            sharedReceiptIDs: sharedIDs.subtracting(receiptIDs).sorted()
+        )
+    }
+
+    /// Drop the index after uninstalling or forgetting a receipt.
     static func invalidate() {
         lock.lock(); defer { lock.unlock() }
-        cached = nil
+        cachedRecords = nil
     }
 
-    /// App-bundle path (lowercased, standardized) → the files of every non-Apple
-    /// package whose BOM installs that bundle. Built once, then cached.
-    private static func index() -> [String: [URL]] {
+    // ponytail: one lock held across the whole build, so a scan starting during
+    // the background prewarm waits for it rather than reading receipts twice.
+    // Split into a state lock plus a build barrier only if that wait shows up.
+    private static func records(isCancelled: (() -> Bool)? = nil) -> [PackageRecord] {
         lock.lock(); defer { lock.unlock() }
-        if let cached { return cached }
-        let built = build()
-        cached = built
+        if let cachedRecords { return cachedRecords }
+        guard PackageScanner.isAvailable() else { return [] }
+
+        let ids = PackageScanner.nonSystemPackageIDs().sorted()
+        guard !ids.isEmpty else { return [] }
+
+        var records = [PackageRecord?](repeating: nil, count: ids.count)
+        records.withUnsafeMutableBufferPointer { buffer in
+            DispatchQueue.concurrentPerform(iterations: ids.count) { index in
+                guard isCancelled?() != true else { return }
+                let rawFiles = PackageScanner.rawBOMFiles(id: ids[index], isCancelled: isCancelled)
+                let appPaths = OrphanScanner.topLevelAppPaths(rawFiles).sorted()
+                guard !appPaths.isEmpty else { return }
+                buffer[index] = PackageRecord(
+                    id: ids[index],
+                    files: PackageBOMFilter.filter(rawFiles.map(\.path)).map { URL(fileURLWithPath: $0) },
+                    appPaths: appPaths
+                )
+            }
+        }
+
+        let built = records.compactMap { $0 }
+        // A cancelled build is missing packages; keeping it would later report
+        // owned files as unowned.
+        guard isCancelled?() != true else { return built }
+        cachedRecords = built
         return built
     }
 
-    private static func build() -> [String: [URL]] {
-        guard PackageScanner.isAvailable() else { return [:] }
-        let ids = PackageScanner.nonSystemPackageIDs()
-        guard !ids.isEmpty else { return [:] }
-
-        // Read each package's BOM once, concurrently (independent lsbom spawns,
-        // disjoint slot writes) — mirrors PackageScanner.scan's fan-out.
-        var per = [(apps: [String], files: [URL])](repeating: ([], []), count: ids.count)
-        per.withUnsafeMutableBufferPointer { buffer in
-            DispatchQueue.concurrentPerform(iterations: ids.count) { i in
-                let files = PackageScanner.bomFiles(id: ids[i])
-                let apps = OrphanScanner.topLevelAppPaths(files)
-                buffer[i] = (Array(apps), files)
-            }
-        }
-
-        var map: [String: [URL]] = [:]
-        for entry in per where !entry.apps.isEmpty {
-            for app in entry.apps {
-                let key = URL(fileURLWithPath: app).standardizedFileURL.path.lowercased()
-                map[key, default: []].append(contentsOf: entry.files)
-            }
-        }
-        return map
+    private static func standardizedKey(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path.lowercased()
     }
 }

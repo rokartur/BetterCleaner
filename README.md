@@ -38,7 +38,7 @@ Complete uninstall · Native · Liquid Glass · Restorable cleanup · Free forev
 ## Features
 
 - **Complete app uninstall.** Drag an app in (or pick it from the list) and BetterCleaner removes the app plus everything it left behind — support files, caches, preferences, saved state, logs, and login data — all behind a single confirmation.
-- **Finds the leftovers other uninstallers miss.** Deep scans track down every file an app owns and double-check it really belongs to that app before touching it, so nothing important gets deleted.
+- **Finds the leftovers other uninstallers miss.** Known macOS locations, installer receipts, bundle metadata, and Spotlight work together to find app-owned files. Ambiguous shared files stay unselected for review.
 - **Reclaim wasted space.** Spot orphaned files from apps you already deleted, clear out junk caches and logs, and clean up developer leftovers.
 - **Restorable file cleanup.** Files BetterCleaner removes directly go to a safe, restorable location. Delete History lets you search, reveal, and restore them; Homebrew and package-manager removals follow those tools' semantics, may be irreversible, and are logged rather than restorable.
 - **Right from Finder.** Clean or uninstall straight from the Finder right-click menu.

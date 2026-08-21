@@ -60,13 +60,35 @@ enum ReceiptScanner {
     /// `pkgutil --forget` it rather than trashing the loose files. Builds from the
     /// receipt filenames only — no per-id `pkgutil --pkg-info` spawn (version is
     /// unused here), so this stays O(1) processes regardless of match count.
-    static func fileItems(for descriptor: AppDescriptor) -> [FileItem] {
-        matchingIDs(allReceiptIDs(), descriptor: descriptor).map { id in
+    ///
+    /// `sharedIDs` are receipts a bundle-id prefix match would otherwise select
+    /// even though they also own a sibling application. They are still listed —
+    /// forgetting one is a user decision — but never pre-selected, because
+    /// `AppRemover` turns a selected row straight into `pkgutil --forget`.
+    static func fileItems(
+        for descriptor: AppDescriptor,
+        additionalIDs: [String] = [],
+        sharedIDs: [String] = []
+    ) -> [FileItem] {
+        let shared = Set(sharedIDs)
+        let ids = Set(matchingIDs(allReceiptIDs(), descriptor: descriptor))
+            .union(additionalIDs)
+            .sorted()
+        return ids.map { id in
             let plist = existing("\(receiptsDir)/\(id).plist")
             let bom = existing("\(receiptsDir)/\(id).bom")
             let url = plist ?? bom ?? URL(fileURLWithPath: "\(receiptsDir)/\(id).plist")
             let size = [plist, bom].compactMap { $0 }.reduce(Int64(0)) { $0 + FileSize.size(of: $1) }
-            return FileItem(url: url, category: "Receipts", domain: .system, isDirectory: false, size: size, isSelected: true)
+            let isShared = shared.contains(id)
+            return FileItem(
+                url: url,
+                category: "Receipts",
+                domain: .system,
+                isDirectory: false,
+                size: size,
+                isSelected: !isShared,
+                isAutoSelectable: !isShared
+            )
         }
     }
 

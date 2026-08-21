@@ -48,4 +48,129 @@ import Foundation
         #expect(PackageScanner.parseField(info, "location") == "Applications")
         #expect(PackageScanner.parseField(info, "missing") == "")
     }
+
+    @Test func exclusivePackageFilesAndReceiptAreRemovable() {
+        let appPath = "/Applications/Foo.app"
+        let records = [PackageOwnership.PackageRecord(
+            id: "com.example.foo",
+            files: [URL(fileURLWithPath: appPath), URL(fileURLWithPath: "/Library/Foo/helper")],
+            appPaths: [appPath]
+        )]
+
+        let result = PackageOwnership.resolve(
+            appPath: appPath,
+            records: records,
+            installedAppPaths: [appPath]
+        )
+
+        #expect(result.files == [PackageOwnership.OwnedFile(
+            url: URL(fileURLWithPath: "/Library/Foo/helper"),
+            isExclusiveToApp: true
+        )])
+        #expect(result.removableReceiptIDs == ["com.example.foo"])
+        #expect(result.sharedReceiptIDs.isEmpty)
+    }
+
+    @Test func suitePackageNeverOffersSiblingAppOrReceipt() {
+        let foo = "/Applications/Foo.app"
+        let bar = "/Applications/Bar.app"
+        let records = [PackageOwnership.PackageRecord(
+            id: "com.example.suite",
+            files: [
+                URL(fileURLWithPath: foo),
+                URL(fileURLWithPath: bar),
+                URL(fileURLWithPath: "/Library/Application Support/Example/shared.db"),
+            ],
+            appPaths: [foo, bar]
+        )]
+
+        let result = PackageOwnership.resolve(
+            appPath: foo,
+            records: records,
+            installedAppPaths: [foo, bar]
+        )
+
+        #expect(result.files == [PackageOwnership.OwnedFile(
+            url: URL(fileURLWithPath: "/Library/Application Support/Example/shared.db"),
+            isExclusiveToApp: false
+        )])
+        #expect(result.removableReceiptIDs.isEmpty)
+        // Listed so the user can still forget it by hand, never pre-selected.
+        #expect(result.sharedReceiptIDs == ["com.example.suite"])
+    }
+
+    /// A bundled updater is not a second product: it is not itself an installed
+    /// app, so the package stays exclusive and the updater remains removable
+    /// rather than being hidden as a sibling.
+    @Test func bundledHelperAppIsNotASibling() {
+        let foo = "/Applications/Foo.app"
+        let updater = "/Library/Application Support/Foo/Foo Updater.app"
+        let records = [PackageOwnership.PackageRecord(
+            id: "com.example.foo",
+            files: [URL(fileURLWithPath: foo), URL(fileURLWithPath: updater)],
+            appPaths: [foo, updater]
+        )]
+
+        let result = PackageOwnership.resolve(
+            appPath: foo,
+            records: records,
+            installedAppPaths: [foo, "/Applications/Unrelated.app"]
+        )
+
+        #expect(result.files == [PackageOwnership.OwnedFile(
+            url: URL(fileURLWithPath: updater),
+            isExclusiveToApp: true
+        )])
+        #expect(result.removableReceiptIDs == ["com.example.foo"])
+    }
+
+    /// The Finder extension deep-links into a scan before the app inventory is
+    /// built. An empty inventory means "unknown", never "nothing else installed".
+    @Test func emptyInventoryTreatsPackageAsShared() {
+        let foo = "/Applications/Foo.app"
+        let bar = "/Applications/Bar.app"
+        let records = [PackageOwnership.PackageRecord(
+            id: "com.example.suite",
+            files: [URL(fileURLWithPath: foo), URL(fileURLWithPath: bar), URL(fileURLWithPath: "/Library/x/s.db")],
+            appPaths: [foo, bar]
+        )]
+
+        let result = PackageOwnership.resolve(appPath: foo, records: records, installedAppPaths: [])
+
+        #expect(result.files == [PackageOwnership.OwnedFile(
+            url: URL(fileURLWithPath: "/Library/x/s.db"),
+            isExclusiveToApp: false
+        )])
+        #expect(result.removableReceiptIDs.isEmpty)
+        #expect(result.sharedReceiptIDs == ["com.example.suite"])
+    }
+
+    /// `ReceiptScanner.matchingIDs` matches parent namespaces too, so a receipt
+    /// that never mentions this app can still be listed. If it owns another
+    /// installed app it must not arrive pre-selected for `pkgutil --forget`.
+    @Test func receiptOwningOnlyAnotherInstalledAppIsShared() {
+        let foo = "/Applications/Foo.app"
+        let bar = "/Applications/Bar.app"
+        let records = [
+            PackageOwnership.PackageRecord(
+                id: "com.example.foo",
+                files: [URL(fileURLWithPath: foo)],
+                appPaths: [foo]
+            ),
+            PackageOwnership.PackageRecord(
+                id: "com.example",
+                files: [URL(fileURLWithPath: bar)],
+                appPaths: [bar]
+            )
+        ]
+
+        let result = PackageOwnership.resolve(
+            appPath: foo,
+            records: records,
+            installedAppPaths: [foo, bar]
+        )
+
+        #expect(result.removableReceiptIDs == ["com.example.foo"])
+        #expect(result.sharedReceiptIDs == ["com.example"])
+    }
 }
