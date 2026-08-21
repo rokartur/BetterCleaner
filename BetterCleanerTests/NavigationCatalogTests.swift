@@ -10,7 +10,7 @@ import Foundation
 @Suite struct NavigationCatalogTests {
     /// Every id `MainSplitViewController` can be asked to route to.
     private static let routableIDs = [
-        "applications", "junk", "orphaned", "pkg", "devenv", "history",
+        "applications", "junk", "orphaned", "pkg", "devenv", "search", "history",
         "brew.installed", "brew.available", "brew.services", "brew.taps",
         "brew.autoupdate", "brew.maintenance",
     ]
@@ -28,12 +28,12 @@ import Foundation
         #expect(brewRows.first?.id == "brew.installed")
     }
 
-    /// Cleanup is what the app is for; it must not be outnumbered in the sidebar by
-    /// any single tool again.
-    @Test func cleanupIsTheLargestSidebarGroup() {
-        let counts = NavCatalog.groups.map(\.items.count)
-        let cleanup = NavCatalog.groups.first { $0.title == "Cleanup" }?.items.count ?? 0
-        #expect(cleanup == counts.max())
+    /// Cleanup is what the app is for, so it leads the sidebar. Tools may grow past
+    /// it in row count (File Search made it four) — what must not change is which
+    /// group the eye lands on first.
+    @Test func cleanupLeadsTheSidebar() {
+        #expect(NavCatalog.groups.first?.title == "Cleanup")
+        #expect(NavCatalog.groups.first?.items.count == NavCatalog.cleanup.count)
     }
 
     @Test func unlistedPagesHaveNoSidebarRow() {

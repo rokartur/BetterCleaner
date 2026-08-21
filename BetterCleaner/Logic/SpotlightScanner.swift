@@ -64,11 +64,7 @@ enum SpotlightScanner {
                     .map { FileMatcher.containerMatches(identifier: $0, descriptor: descriptor) } == true)
         }
 
-        let sorted = accepted.sorted { $0.count < $1.count }
-        var kept: [String] = []
-        for path in sorted where !kept.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) {
-            kept.append(path)
-        }
+        let kept = ScanExclusions.topLevelPaths(accepted)
 
         let fm = FileManager.default
         let appTeam = app.teamID ?? CodeSigning.teamID(of: app.url)
@@ -108,10 +104,12 @@ enum SpotlightScanner {
     }
 
     /// Run one `mdfind` query and parse its NUL-separated paths. Shared with
-    /// `AppFinder`, which queries the same index for app bundles.
-    static func mdfindPaths(_ query: String, isCancelled: (() -> Bool)? = nil) -> [URL] {
+    /// `AppFinder`, which queries the same index for app bundles, and
+    /// `FileSearcher`, which narrows its query to a folder via `onlyIn`.
+    static func mdfindPaths(_ query: String, onlyIn: URL? = nil, isCancelled: (() -> Bool)? = nil) -> [URL] {
         guard FileManager.default.isExecutableFile(atPath: mdfind) else { return [] }
-        let output = CommandRunner.run(mdfind, ["-0", query], isCancelled: isCancelled)
+        let scope = onlyIn.map { ["-onlyin", $0.path] } ?? []
+        let output = CommandRunner.run(mdfind, scope + ["-0", query], isCancelled: isCancelled)
         guard output.ok else { return [] }
         return output.stdout
             .split(separator: "\0", omittingEmptySubsequences: true)
@@ -131,7 +129,9 @@ enum SpotlightScanner {
         return false
     }
 
-    private static func escapeQueryValue(_ value: String) -> String {
+    /// Neutralize a user- or metadata-supplied value inside a quoted `mdfind`
+    /// predicate. Shared with `FileSearcher`, which builds its own queries.
+    static func escapeQueryValue(_ value: String) -> String {
         value.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
     }

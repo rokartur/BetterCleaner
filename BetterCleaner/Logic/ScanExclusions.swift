@@ -21,6 +21,18 @@ enum ScanExclusions {
         Set(urls.map { $0.standardizedFileURL.path })
     }
 
+    /// Drop every path that sits beneath another path in the same list, keeping only
+    /// the topmost entries. Shared by the scanners so a matched folder and a matched
+    /// file inside it are never both billed for the same bytes.
+    static func topLevelPaths(_ paths: some Sequence<String>) -> [String] {
+        var kept: [String] = []
+        for path in paths.sorted(by: { $0.count < $1.count })
+        where !kept.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) {
+            kept.append(path)
+        }
+        return kept
+    }
+
     /// Whether `path` lives in a macOS Trash — the user's `~/.Trash` or a
     /// per-volume `/.Trashes`. Trashed items (including an app bundle BetterCleaner
     /// itself just moved to the Trash, which Spotlight keeps indexing at its new
@@ -28,5 +40,8 @@ enum ScanExclusions {
     /// them as "installed" apps or "leftover" files.
     static func isInTrash(_ path: String) -> Bool {
         path.contains("/.Trash/") || path.contains("/.Trashes/")
+            // The trash folders themselves: trashing a Trash either fails outright or
+            // moves one volume's Trash inside another.
+            || path.hasSuffix("/.Trash") || path.hasSuffix("/.Trashes")
     }
 }

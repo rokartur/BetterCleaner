@@ -70,6 +70,7 @@ final class MainSplitViewController: NSSplitViewController {
     private lazy var homebrewAutomationVC = HomebrewAutomationViewController()
     private lazy var homebrewMaintenanceVC = HomebrewMaintenanceViewController()
     private lazy var developmentVC = DevelopmentViewController()
+    private lazy var fileSearchVC = FileSearchViewController()
     private lazy var deleteHistoryVC = DeleteHistoryViewController()
 
     // App-uninstall scan state (absorbed from the old ApplicationsViewController).
@@ -87,8 +88,6 @@ final class MainSplitViewController: NSSplitViewController {
         didSet { notifyNavigationState() }
     }
 
-    /// Every selectable page other than the default Applications page.
-    private static let pageIDs: Set<String> = ["junk", "orphaned", "pkg", "brew.installed", "brew.available", "brew.services", "brew.taps", "brew.autoupdate", "brew.maintenance", "devenv", "history"]
     /// Pages that show the collapsible left sidebar (a master list in it). Every
     /// other page collapses the sidebar and takes the content area full-width.
     private static let sidebarPageIDs: Set<String> = ["applications", "pkg", "brew.installed", "brew.available", "brew.services", "brew.taps"]
@@ -396,7 +395,8 @@ final class MainSplitViewController: NSSplitViewController {
     // MARK: - Page routing
 
     func select(_ id: String) {
-        let requested = Self.pageIDs.contains(id) ? id : "applications"
+        // The catalog decides what is routable, so a new row needs no second list.
+        let requested = NavCatalog.section(id: id) != nil ? id : "applications"
         // The one Homebrew sidebar row reopens the category used most recently.
         let resolved = requested == "brew.installed" ? lastBrewPageID : requested
         pageHistory.visit(resolved)
@@ -450,6 +450,8 @@ final class MainSplitViewController: NSSplitViewController {
             container.setContent(homebrewMaintenanceVC); homebrewMaintenanceVC.startIfNeeded()
         case "devenv":
             container.setContent(developmentVC); developmentVC.startIfNeeded()
+        case "search":
+            container.setContent(fileSearchVC)
         case "history":
             container.setContent(deleteHistoryVC); deleteHistoryVC.reload()
         default:

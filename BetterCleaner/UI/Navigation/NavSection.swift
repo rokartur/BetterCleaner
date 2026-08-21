@@ -17,6 +17,7 @@ enum NavCatalog {
     static let tools: [NavSection] = [
         NavSection(id: "pkg", title: "Packages", icon: "shippingbox", enabled: true),
         NavSection(id: "devenv", title: "Development", icon: "hammer", enabled: true),
+        NavSection(id: "search", title: "File Search", icon: "magnifyingglass", enabled: true),
     ]
 
     /// Homebrew is one destination, not six. The four browsable categories

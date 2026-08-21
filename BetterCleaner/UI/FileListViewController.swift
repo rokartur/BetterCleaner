@@ -430,7 +430,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         updateFooter()
     }
 
-    func showCompletion(title: String, message: String) {
+    func showCompletion(title: String, message: String, symbol: String = "checkmark.circle") {
         waitingForFullDiskAccess = false
         hideProgress()
         allNodes = []
@@ -439,7 +439,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         clearHeader()
         legend.isHidden = true
         searchField.isHidden = true
-        emptyState.configure(symbol: "checkmark.circle", title: title, message: message)
+        emptyState.configure(symbol: symbol, title: title, message: message)
         emptyState.isHidden = false
         updateFooter()
     }
@@ -759,11 +759,19 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     }
 
     private func runPlainTrash(_ selected: [FileItem]) {
-        if Preferences.shared.confirmBeforeDelete {
+        // System-domain files are removed with administrator rights, so they are
+        // confirmed even when the user turned confirmations off — one stray click on
+        // a section checkbox must not move /Library files on an admin prompt alone.
+        let systemCount = selected.count { $0.domain == .system }
+        if Preferences.shared.confirmBeforeDelete || systemCount > 0 {
             let bytes = selected.reduce(0) { $0 + $1.size }
             let alert = NSAlert()
             alert.messageText = "Move \(selected.count) item\(selected.count == 1 ? "" : "s") to the Trash?"
             alert.informativeText = "Total size: \(FileSize.string(bytes)). Items can be restored from the Trash."
+                + (systemCount > 0
+                    ? "\n\n\(systemCount) item\(systemCount == 1 ? " is" : "s are") outside your home folder "
+                        + "and will need an administrator password."
+                    : "")
             Buttons.addDestructiveConfirmation("Move to Trash", to: alert)
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
