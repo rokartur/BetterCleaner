@@ -2,12 +2,15 @@ import AppKit
 
 /// Enumerates installed `.app` bundles and reads their identity.
 enum AppFinder {
+
     static func defaultRoots() -> [URL] {
         let fm = FileManager.default
         let roots = [
             URL(fileURLWithPath: "/Applications", isDirectory: true),
             fm.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true),
             URL(fileURLWithPath: "/System/Applications", isDirectory: true),
+            URL(fileURLWithPath: "/System/Library/CoreServices/Applications", isDirectory: true),
+            URL(fileURLWithPath: "/Network/Applications", isDirectory: true),
         ]
         return roots.filter { fm.fileExists(atPath: $0.path) }
     }
@@ -20,23 +23,53 @@ enum AppFinder {
 
     static func installedApps(extraRoots: [URL] = []) -> [InstalledApp] {
         let fm = FileManager.default
-        var seen = Set<URL>()
+        let roots = defaultRoots() + extraRoots
+        var seen = Set<String>()
         var apps: [InstalledApp] = []
 
-        for root in defaultRoots() + extraRoots {
-            for url in appBundles(under: root, fm: fm) {
-                let std = url.standardizedFileURL
-                if seen.contains(std) { continue }
-                seen.insert(std)
-                // Bulk discovery skips the Team ID: it's a per-bundle code-signing
-                // crypto read (SecStaticCode) needed only by the Spotlight scanner
-                // for the *one* app being removed — computing it for every app in
-                // the sidebar is pure waste (and the recursive walk multiplies the
-                // count). Resolved lazily at scan time instead.
-                if let app = app(at: std, resolveTeamID: false) { apps.append(app) }
-            }
+        func append(_ url: URL) {
+            let standardized = url.standardizedFileURL
+            let key = standardized.resolvingSymlinksInPath().path.lowercased()
+            guard seen.insert(key).inserted,
+                  let app = app(at: standardized, resolveTeamID: false) else { return }
+            apps.append(app)
         }
+
+        for root in roots {
+            for url in appBundles(under: root, fm: fm) { append(url) }
+        }
+        for url in spotlightAppBundles(allowedRoots: roots) { append(url) }
+
         return apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// Spotlight adds hidden apps under known roots and apps on writable external
+    /// volumes without recursively walking every mounted disk. Unindexed volumes
+    /// remain available through the user-configured extra roots.
+    private static func spotlightAppBundles(allowedRoots: [URL]) -> [URL] {
+        let query = "kMDItemContentType == \"com.apple.application-bundle\"cd"
+        let rootPaths = allowedRoots.map { $0.standardizedFileURL.path }
+        return SpotlightScanner.mdfindPaths(query)
+            .filter { url in
+                guard url.pathExtension.lowercased() == "app",
+                      !ScanExclusions.isInTrash(url.path),
+                      !isNestedApplication(url) else { return false }
+                if rootPaths.contains(where: { url.path == $0 || url.path.hasPrefix($0 + "/") }) {
+                    return true
+                }
+                return url.path.hasPrefix("/Volumes/") && isWritableVolume(url)
+            }
+    }
+
+    private static func isNestedApplication(_ url: URL) -> Bool {
+        url.standardizedFileURL.pathComponents.dropLast().contains {
+            $0.lowercased().hasSuffix(".app")
+        }
+    }
+
+    /// Fails open: an unreadable volume flag should not hide an installed app.
+    private static func isWritableVolume(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.volumeIsReadOnlyKey]).volumeIsReadOnly) != true
     }
 
     /// Every `.app` bundle at or below `root`, recursing through plain subfolders
@@ -70,7 +103,7 @@ enum AppFinder {
     /// skips the (relatively costly) code-signing Team ID read for bulk listing;
     /// callers that need ownership evidence (the leftover scan) pass `true`.
     static func app(at url: URL, resolveTeamID: Bool = true) -> InstalledApp? {
-        guard url.pathExtension == "app" else { return nil }
+        guard url.pathExtension.lowercased() == "app" else { return nil }
         // Must be a real bundle directory that exists — guards against a deep-link
         // / Finder-extension path like "/tmp/fake.app" that isn't an app bundle.
         var isDir: ObjCBool = false
@@ -115,6 +148,7 @@ enum AppFinder {
             "PlugIns",
             "Extensions",
             "XPCServices",
+            "Frameworks",
         ]
         var ids = Set<String>()
         for sub in helperDirs {
@@ -125,6 +159,9 @@ enum AppFinder {
                 options: [.skipsHiddenFiles]
             ) else { continue }
             for entry in entries {
+                if sub == "Frameworks", !["app", "xpc"].contains(entry.pathExtension.lowercased()) {
+                    continue
+                }
                 guard let id = Bundle(url: entry)?.bundleIdentifier, id != primary else { continue }
                 ids.insert(id)
             }
@@ -143,16 +180,18 @@ final class InstalledAppsIndex {
         var ids = Set<String>()
         var names = Set<String>()
         for app in apps {
-            if let b = app.bundleID?.lowercased(), !b.isEmpty { ids.insert(b) }
-            for e in app.extraBundleIDs {
-                let l = e.lowercased()
-                if !l.isEmpty { ids.insert(l) }
+            if let bundleID = app.bundleID?.lowercased(), !bundleID.isEmpty {
+                ids.insert(bundleID)
             }
-            let n = FileMatcher.normalize(app.name)
-            if !n.isEmpty { names.insert(n) }
-            if let exe = app.executable {
-                let e = FileMatcher.normalize(exe)
-                if !e.isEmpty { names.insert(e) }
+            for extraBundleID in app.extraBundleIDs {
+                let bundleID = extraBundleID.lowercased()
+                if !bundleID.isEmpty { ids.insert(bundleID) }
+            }
+            let normalizedName = FileMatcher.normalize(app.name)
+            if !normalizedName.isEmpty { names.insert(normalizedName) }
+            if let executable = app.executable {
+                let normalizedExecutable = FileMatcher.normalize(executable)
+                if !normalizedExecutable.isEmpty { names.insert(normalizedExecutable) }
             }
         }
         bundleIDs = ids
@@ -167,16 +206,18 @@ final class InstalledAppsIndex {
     ///    *suffix*: `group.com.foo.Bar`, `4FG648TM2A.group.com.foo.Bar`,
     ///    `243LU875E5.groups.com.foo.Bar`, `TEAMID.com.foo.Bar` ← `com.foo.Bar`.
     func ownsIdentifier(_ candidate: String) -> Bool {
-        let c = candidate.lowercased()
-        if bundleIDs.contains(c) { return true }
+        let normalizedCandidate = candidate.lowercased()
+        if bundleIDs.contains(normalizedCandidate) { return true }
         for id in bundleIDs where !id.isEmpty {
-            if c.hasPrefix(id + ".") || c.hasSuffix("." + id) { return true }
+            if normalizedCandidate.hasPrefix(id + ".") || normalizedCandidate.hasSuffix("." + id) {
+                return true
+            }
         }
         return false
     }
 
     func matchesName(_ candidate: String) -> Bool {
-        let n = FileMatcher.normalize(candidate)
-        return !n.isEmpty && normalizedNames.contains(n)
+        let normalizedCandidate = FileMatcher.normalize(candidate)
+        return !normalizedCandidate.isEmpty && normalizedNames.contains(normalizedCandidate)
     }
 }

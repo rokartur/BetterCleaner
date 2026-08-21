@@ -3,108 +3,67 @@ import Foundation
 /// Recall layer beyond the fixed Library catalog: asks Spotlight (`mdfind`) for
 /// app-associated files anywhere on disk, surfacing leftovers in non-standard
 /// places — `~/Applications (Vendor)`, `/Users/Shared/<App>`, stray files in the
-/// home folder, VM/data bundles, etc.
+/// home folder, VM/data bundles, etc. It also covers `~/Library` and `/Library`,
+/// which the catalog walks only to a fixed depth; the overlap is free because
+/// `seenPaths` drops the duplicates.
 ///
 /// Deliberately conservative: results are **never auto-selected** (they can
-/// include large user data such as virtual machines), are filtered with a tight
-/// association test (exact vendor token / bundle-id / reverse-DNS namespace — so
-/// "ParallelSession.pm" or "ParallelSCSIReporter" never match), and exclude
-/// everything already covered by the Library scan.
+/// include large user data such as virtual machines) and are filtered with a tight
+/// association test (exact vendor token / bundle-id / reverse-DNS namespace, so
+/// "ParallelSession.pm" or "ParallelSCSIReporter" never match).
 enum SpotlightScanner {
     private static let mdfind = "/usr/bin/mdfind"
     static let category = "Found by Spotlight"
 
-    /// Find app-associated paths outside the scanned Library locations.
-    /// `seenPaths` are standardized paths already surfaced by the Library scan.
-    static func scan(app: InstalledApp, seenPaths: Set<String>, isCancelled: () -> Bool = { false }) -> [FileItem] {
-        guard FileManager.default.isExecutableFile(atPath: mdfind) else { return [] }
-        if isCancelled() { return [] }
+    /// Find app-associated paths across every Spotlight-indexed volume. The fixed
+    /// Library catalog remains the fast path; `seenPaths` removes its duplicates.
+    static func scan(
+        app: InstalledApp,
+        seenPaths: Set<String>,
+        otherAppPaths: Set<String> = [],
+        includeSystem: Bool = true,
+        excluded: Set<String> = [],
+        isCancelled: @escaping () -> Bool = { false }
+    ) -> [FileItem] {
+        guard let query = metadataQuery(for: app.descriptor), !isCancelled() else { return [] }
+
+        // One OR query covers names, bundle-id filenames and bundle metadata on
+        // every indexed volume. The previous term × scope fan-out repeated the
+        // same Spotlight work in many child processes.
+        let candidates = Set(mdfindPaths(query, isCancelled: isCancelled).map(\.path))
+        guard !isCancelled() else { return [] }
+
         let descriptor = app.descriptor
-
-        // Query by reverse-DNS signals (vendor tokens, bundle ids) AND distinctive
-        // app-name tokens. Name matching catches leftovers named after the app in
-        // non-standard places; near-name source noise (e.g. ~/Developer/discord-*.
-        // tsx) is dropped by the developer-path filter below, and everything here
-        // is review-only (never auto-selected).
-        var terms = Set(FileMatcher.vendorTokens(descriptor))
-        terms.formUnion(nameTerms(descriptor))
-
-        // The argv "tail" of each Spotlight query (name term or bundle-id metadata,
-        // the latter catching helper .apps the vendor registered).
-        var queryTails: [[String]] = terms.map { ["-name", $0] }
-        for bid in descriptor.allBundleIDs where bid.contains(".") {
-            queryTails.append(["kMDItemCFBundleIdentifier == '\(bid)*'c"])
-        }
-
-        // Search scopes. The unscoped pass (`nil`) hits the whole local index —
-        // boot volume + every Spotlight-indexed volume. The `-onlyin` passes force
-        // a deterministic sweep of external volumes and the shared folder, which a
-        // broad name query can rank-drop or which may be freshly mounted. Volumes
-        // the user excluded from indexing (Time Machine / backup drives) stay
-        // invisible by design — no query scope can reach an unindexed store.
-        let scopes: [String?] = [nil] + extraVolumeScopes()
-
-        // Each mdfind is an independent Process + Spotlight query; run them
-        // concurrently and merge hits under a lock. `-0` makes mdfind NUL-delimit
-        // output so paths containing newlines (legal on APFS/HFS+) aren't split.
-        var queries: [[String]] = []
-        for scope in scopes {
-            let prefix = scope.map { ["-0", "-onlyin", $0] } ?? ["-0"]
-            for tail in queryTails { queries.append(prefix + tail) }
-        }
-
-        var candidates = Set<String>()
-        let lock = NSLock()
-        DispatchQueue.concurrentPerform(iterations: queries.count) { i in
-            if isCancelled() { return }
-            let out = CommandRunner.run(mdfind, queries[i])
-            guard out.ok else { return }
-            var local: [String] = []
-            for field in out.stdout.split(separator: "\0", omittingEmptySubsequences: true) {
-                let path = String(field)
-                if !path.isEmpty { local.append(path) }
-            }
-            guard !local.isEmpty else { return }
-            lock.lock()
-            for path in local { candidates.insert(path) }
-            lock.unlock()
-        }
-
-        if isCancelled() { return [] }
         let appPath = app.url.standardizedFileURL.path
         let homePath = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
-        let userLibrary = Locations.userLibrary.standardizedFileURL.path
-        let systemLibrary = Locations.systemLibrary.standardizedFileURL.path
+        let accepted = candidates.filter { path in
+            let url = URL(fileURLWithPath: path)
+            // Every rejection below is a string or a cached lookup, so they run
+            // before the metadata read, which is an `mds` round-trip per path.
+            if path == appPath || path.hasPrefix(appPath + "/") { return false }
+            // A sibling app's own bundle is a live install, not a leftover. These
+            // rows are review-only, but a deliberate section-checkbox click
+            // selects review-only rows too.
+            if otherAppPaths.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { return false }
+            if path.hasPrefix("/System/") || ScanExclusions.isInTrash(path) { return false }
+            if !includeSystem, !path.hasPrefix(homePath + "/") { return false }
+            if isLikelyDeveloperPath(path) { return false }
+            // `~/Library` and `/Library` are in scope now, which is exactly where
+            // the protected names live, so this path needs the same guard the
+            // catalog walk applies.
+            if FileMatcher.isProtected(url: url) { return false }
+            if isCovered(path, by: seenPaths) || ScanExclusions.isExcluded(url, in: excluded) { return false }
 
-        let accepted = candidates
-            .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
-            .filter { path in
-                let name = (path as NSString).lastPathComponent
-                // Attribute by name/vendor/bundle-id in the name, OR — for an
-                // opaque (UUID/hash) folder a name test can't read, e.g. a data
-                // dir on an external volume — by its Spotlight-indexed bundle id.
-                // Routes through FileMatcher (one matcher), never a parallel rule.
-                let attributed = associates(name, descriptor)
-                    || (FileMatcher.looksOpaque(name)
-                        && FileMatcher.metadataBundleID(of: URL(fileURLWithPath: path))
-                            .map { FileMatcher.containerMatches(identifier: $0, descriptor: descriptor) } == true)
-                guard attributed else { return false }
-                if seenPaths.contains(path) { return false }
-                if path == appPath || path.hasPrefix(appPath + "/") { return false }
-                // Library + System are already covered by the catalog scan.
-                if path.hasPrefix(userLibrary + "/") || path.hasPrefix(systemLibrary + "/") { return false }
-                if path.hasPrefix("/System/") { return false }
-                // Trashed items — including a bundle BetterCleaner just uninstalled,
-                // which Spotlight still indexes at its ~/.Trash path — are already
-                // gone; never re-surface them as leftovers.
-                if ScanExclusions.isInTrash(path) { return false }
-                // Source/checkout trees: a name like "discord" matches code files;
-                // these aren't app leftovers.
-                if isLikelyDeveloperPath(path) { return false }
-                return true
-            }
+            let name = url.lastPathComponent
+            // Only bundles carry an indexed identifier, and only opaque names
+            // cannot be judged lexically, so the metadata read is limited to them
+            // instead of every filename the substring query returned.
+            let needsMetadata = isCodeBundle(name) || FileMatcher.looksOpaque(name)
+            return associates(name, descriptor)
+                || (needsMetadata && FileMatcher.metadataBundleID(of: url)
+                    .map { FileMatcher.containerMatches(identifier: $0, descriptor: descriptor) } == true)
+        }
 
-        // Keep only top-most accepted ancestors (drop children of a kept path).
         let sorted = accepted.sorted { $0.count < $1.count }
         var kept: [String] = []
         for path in sorted where !kept.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) {
@@ -112,58 +71,76 @@ enum SpotlightScanner {
         }
 
         let fm = FileManager.default
-        // The scanned app's Team ID is read lazily here (bulk discovery skips it):
-        // it's the negative-evidence baseline for rejecting same-named bundles from
-        // a different publisher.
         let appTeam = app.teamID ?? CodeSigning.teamID(of: app.url)
         return kept.compactMap { path -> FileItem? in
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: path, isDirectory: &isDir) else { return nil }
+            var isDirectory: ObjCBool = false
+            guard fm.fileExists(atPath: path, isDirectory: &isDirectory) else { return nil }
             let url = URL(fileURLWithPath: path)
-            // Negative evidence: a signed bundle whose Team ID differs from the app
-            // being removed belongs to a different publisher — not its leftover, even
-            // if the name matches. Only rejects when both teams are known (an
-            // unsigned or teamless candidate is kept, since these are review-only).
-            if let appTeam, isCodeBundle(path), let team = CodeSigning.teamID(of: url), team != appTeam {
-                return nil
-            }
-            let (size, complete) = FileSize.sizeWithStatus(of: url)
+            if let appTeam, isCodeBundle(path),
+               let team = CodeSigning.teamID(of: url), team != appTeam { return nil }
             let domain: FileDomain = path.hasPrefix(homePath + "/") ? .user : .system
-            // Never auto-selected: may be large user data (e.g. virtual machines).
-            return FileItem(url: url, category: category, domain: domain, isDirectory: isDir.boolValue,
-                            size: size, isSelected: false, sizeIsApproximate: !complete, isAutoSelectable: false)
+            return FileItem(
+                url: url,
+                category: category,
+                domain: domain,
+                isDirectory: isDirectory.boolValue,
+                isAutoSelectable: false
+            )
         }
-        .sorted { $0.size > $1.size }
     }
 
-    /// Extra `-onlyin` scopes for the Spotlight sweep beyond the default (whole
-    /// local index): the shared folder plus each mounted external volume under
-    /// `/Volumes`, skipping the boot volume (its `/Volumes` entry is a symlink to
-    /// `/`, already covered by the unscoped pass). Gives a deterministic per-volume
-    /// sweep for app data that lives off the boot drive.
-    private static func extraVolumeScopes() -> [String] {
-        let fm = FileManager.default
-        var scopes: [String] = []
-        let shared = "/Users/Shared"
-        if fm.fileExists(atPath: shared) { scopes.append(shared) }
-        if let vols = try? fm.contentsOfDirectory(atPath: "/Volumes") {
-            for vol in vols {
-                let path = "/Volumes/" + vol
-                // Skip the boot-volume symlink (resolves to "/").
-                let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
-                if resolved == "/" { continue }
-                var isDir: ObjCBool = false
-                guard fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { continue }
-                scopes.append(path)
-            }
+    /// One metadata query rather than one process per term. Bundle identifiers are
+    /// searched both as filenames (`com.vendor.App.plist`) and as code metadata.
+    static func metadataQuery(for descriptor: AppDescriptor) -> String? {
+        var nameSignals = Set(FileMatcher.vendorTokens(descriptor))
+        nameSignals.formUnion(nameTerms(descriptor))
+        nameSignals.formUnion(descriptor.allBundleIDs)
+
+        var predicates = nameSignals.sorted().map {
+            "kMDItemFSName == \"*\(escapeQueryValue($0))*\"cd"
         }
-        return scopes
+        predicates += descriptor.allBundleIDs
+            .filter { $0.contains(".") }
+            .sorted()
+            .map { "kMDItemCFBundleIdentifier == \"\(escapeQueryValue($0))*\"cd" }
+        guard !predicates.isEmpty else { return nil }
+        return predicates.map { "(\($0))" }.joined(separator: " || ")
+    }
+
+    /// Run one `mdfind` query and parse its NUL-separated paths. Shared with
+    /// `AppFinder`, which queries the same index for app bundles.
+    static func mdfindPaths(_ query: String, isCancelled: (() -> Bool)? = nil) -> [URL] {
+        guard FileManager.default.isExecutableFile(atPath: mdfind) else { return [] }
+        let output = CommandRunner.run(mdfind, ["-0", query], isCancelled: isCancelled)
+        guard output.ok else { return [] }
+        return output.stdout
+            .split(separator: "\0", omittingEmptySubsequences: true)
+            .map { URL(fileURLWithPath: String($0)).standardizedFileURL }
+    }
+
+    /// The catalog walk lists folders, and Spotlight indexes their contents, so a
+    /// candidate under a listed parent would become a second row — and the hero
+    /// total would count those bytes twice. Only descendants are collapsed; a
+    /// candidate that is an *ancestor* of a catalogued row is still kept.
+    private static func isCovered(_ path: String, by seenPaths: Set<String>) -> Bool {
+        var url = URL(fileURLWithPath: path)
+        while url.path != "/" {
+            if seenPaths.contains(url.path) { return true }
+            url = url.deletingLastPathComponent()
+        }
+        return false
+    }
+
+    private static func escapeQueryValue(_ value: String) -> String {
+        value.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
     /// A signed code-bundle path whose Team ID is worth checking for ownership.
     static func isCodeBundle(_ path: String) -> Bool {
+        let lower = path.lowercased()
         let exts = [".app", ".appex", ".xpc", ".framework", ".bundle", ".plugin", ".kext", ".systemextension"]
-        return exts.contains { path.hasSuffix($0) }
+        return exts.contains { lower.hasSuffix($0) }
     }
 
     /// Association test for Spotlight hits: a full bundle id in the name, a
@@ -193,20 +170,30 @@ enum SpotlightScanner {
         return markers.contains { path.contains($0) }
     }
 
-    /// Distinctive, normalized app-name tokens to search by: the full normalized
-    /// name plus its individual words, skipping generic words that would flood
-    /// results ("notes", "mail", "manager", …).
+    /// Distinctive names declared by the bundle. Executable and alternate names
+    /// matter for apps whose installed data does not use the display name.
     private static func nameTerms(_ descriptor: AppDescriptor) -> [String] {
+        var sources = [descriptor.name] + descriptor.extraNames
+        if let executable = descriptor.executable { sources.append(executable) }
         var terms: [String] = []
-        let full = FileMatcher.normalize(descriptor.name)
-        if full.count >= 5, !genericNameWords.contains(full) { terms.append(full) }
-        for word in descriptor.name.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" }) {
-            let normalized = FileMatcher.normalize(String(word))
-            if normalized.count >= 5, !genericNameWords.contains(normalized), !terms.contains(normalized) {
+        for name in sources { appendNameTerms(name, to: &terms) }
+        return terms
+    }
+
+    /// Every term becomes a `*substring*` query, so five characters is the floor
+    /// for the ones derived from a name: "code" from Visual Studio Code would
+    /// claim `~/code`. Vendor tokens and bundle ids carry their own floors and go
+    /// into the query directly.
+    private static func appendNameTerms(_ name: String, to terms: inout [String]) {
+        let candidates = [name] + name.split { $0 == " " || $0 == "-" || $0 == "_" }.map(String.init)
+        for candidate in candidates {
+            let normalized = FileMatcher.normalize(candidate)
+            if normalized.count >= 5,
+               !genericNameWords.contains(normalized),
+               !terms.contains(normalized) {
                 terms.append(normalized)
             }
         }
-        return terms
     }
 
     private static let genericNameWords: Set<String> = [

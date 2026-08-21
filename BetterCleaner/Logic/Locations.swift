@@ -46,55 +46,75 @@ enum Locations {
 
     static let systemLibrary = URL(fileURLWithPath: "/Library", isDirectory: true)
 
-    /// (category, subpath, depth, resolvesContainerID, autoSelectable). Shared by
-    /// both domains.
-    private static let subdirs: [(String, String, Int, Bool, Bool)] = [
-        // Depth 3 (not 2) so strong com.<vendor>.* files nested under shared
-        // containers — com.apple.sharedfilelist/…, CorePatch/Keychain/… — are
-        // caught. Weak vendor-name matching stays capped at 2 levels (see scan).
-        ("Application Support", "Application Support", 3, false, true),
-        ("Application Support", "Application Support/CrashReporter", 1, false, true),
-        ("Caches", "Caches", 2, false, true),
-        ("Preferences", "Preferences", 1, false, true),
-        ("Preferences", "Preferences/ByHost", 1, false, true),
-        ("Containers", "Containers", 1, true, true),
-        ("Group Containers", "Group Containers", 1, true, true),
-        ("Logs", "Logs", 2, false, true),
-        ("Crash Reports", "Logs/DiagnosticReports", 1, false, true),
-        ("Saved Application State", "Saved Application State", 1, false, true),
-        ("Autosave Information", "Autosave Information", 1, false, true),
-        ("Cookies", "Cookies", 1, false, true),
-        ("HTTPStorages", "HTTPStorages", 1, false, true),
-        ("WebKit", "WebKit", 1, false, true),
-        ("LaunchAgents", "LaunchAgents", 1, false, true),
-        ("Application Scripts", "Application Scripts", 1, false, true),
-        ("Internet Plug-Ins", "Internet Plug-Ins", 1, false, true),
-        ("PreferencePanes", "PreferencePanes", 1, false, true),
-        ("Services", "Services", 1, false, true),
-        // Plug-in / component surfaces an app (or its installer) can drop into.
-        ("Audio Plug-Ins", "Audio/Plug-Ins", 2, false, true),
-        ("Screen Savers", "Screen Savers", 1, false, true),
-        ("Color Pickers", "ColorPickers", 1, false, true),
-        ("Input Methods", "Input Methods", 1, false, true),
-        ("Spotlight", "Spotlight", 1, false, true),
-        ("QuickLook", "QuickLook", 1, false, true),
-        ("Contextual Menu Items", "Contextual Menu Items", 1, false, true),
-        ("Address Book Plug-Ins", "Address Book Plug-Ins", 1, false, true),
-        ("Mail Bundles", "Mail/Bundles", 1, false, true),
-        ("Automator", "Automator", 1, false, true),
-        ("Dictionaries", "Dictionaries", 1, false, true),
-        ("Sounds", "Sounds", 1, false, true),
-        ("Developer", "Developer", 1, false, true),
-        // Fonts rarely carry a bundle id / app name, so a match here is weak —
-        // surfaced but never auto-selected.
-        ("Fonts", "Fonts", 1, false, false),
+    private struct LocationSpec {
+        let category: String
+        let subpath: String
+        let depth: Int
+        let resolvesContainerID: Bool
+        let autoSelectable: Bool
+
+        init(_ category: String, _ subpath: String, _ depth: Int,
+             resolvesContainerID: Bool = false, autoSelectable: Bool = true) {
+            self.category = category
+            self.subpath = subpath
+            self.depth = depth
+            self.resolvesContainerID = resolvesContainerID
+            self.autoSelectable = autoSelectable
+        }
+    }
+
+    private static let subdirs: [LocationSpec] = [
+        // Depth 3 reaches bundle-id files nested under shared containers such as
+        // com.apple.sharedfilelist. Depth 4 measured 40% slower with no extra hits.
+        LocationSpec("Application Support", "Application Support", 3),
+        LocationSpec("Application Support", "Application Support/CrashReporter", 1),
+        LocationSpec("Caches", "Caches", 2),
+        LocationSpec("Preferences", "Preferences", 1),
+        LocationSpec("Preferences", "Preferences/ByHost", 1),
+        LocationSpec("Containers", "Containers", 1, resolvesContainerID: true),
+        LocationSpec("Group Containers", "Group Containers", 1, resolvesContainerID: true),
+        LocationSpec("Logs", "Logs", 2),
+        LocationSpec("Crash Reports", "Logs/DiagnosticReports", 1),
+        LocationSpec("Saved Application State", "Saved Application State", 1),
+        LocationSpec("Autosave Information", "Autosave Information", 1),
+        LocationSpec("Cookies", "Cookies", 1),
+        LocationSpec("HTTPStorages", "HTTPStorages", 1),
+        LocationSpec("WebKit", "WebKit", 1),
+        LocationSpec("LaunchAgents", "LaunchAgents", 1),
+        LocationSpec("Application Scripts", "Application Scripts", 1),
+        LocationSpec("Internet Plug-Ins", "Internet Plug-Ins", 1),
+        LocationSpec("PreferencePanes", "PreferencePanes", 1),
+        LocationSpec("Services", "Services", 1),
+        LocationSpec("Audio Plug-Ins", "Audio/Plug-Ins", 2),
+        LocationSpec("Components", "Components", 1),
+        LocationSpec("Filesystems", "Filesystems", 1),
+        // Depth 1: a framework is removed whole, and level 2 is the inside of
+        // another vendor's bundle.
+        LocationSpec("Frameworks", "Frameworks", 1),
+        LocationSpec("Keyboard Layouts", "Keyboard Layouts", 1),
+        LocationSpec("PDF Services", "PDF Services", 1),
+        LocationSpec("Scripting Additions", "ScriptingAdditions", 1),
+        LocationSpec("Startup Items", "StartupItems", 1),
+        LocationSpec("Widgets", "Widgets", 1),
+        LocationSpec("Screen Savers", "Screen Savers", 1),
+        LocationSpec("Color Pickers", "ColorPickers", 1),
+        LocationSpec("Input Methods", "Input Methods", 1),
+        LocationSpec("Spotlight", "Spotlight", 1),
+        LocationSpec("QuickLook", "QuickLook", 1),
+        LocationSpec("Contextual Menu Items", "Contextual Menu Items", 1),
+        LocationSpec("Address Book Plug-Ins", "Address Book Plug-Ins", 1),
+        LocationSpec("Mail Bundles", "Mail/Bundles", 1),
+        LocationSpec("Automator", "Automator", 1),
+        LocationSpec("Dictionaries", "Dictionaries", 1),
+        LocationSpec("Sounds", "Sounds", 1),
+        LocationSpec("Developer", "Developer", 1),
+        LocationSpec("Fonts", "Fonts", 1, autoSelectable: false),
     ]
 
-    /// System Library additionally exposes daemon + helper directories.
-    private static let systemOnly: [(String, String, Int, Bool, Bool)] = [
-        ("LaunchDaemons", "LaunchDaemons", 1, false, true),
-        ("PrivilegedHelperTools", "PrivilegedHelperTools", 1, false, true),
-        ("Extensions", "Extensions", 1, false, true),
+    private static let systemOnly: [LocationSpec] = [
+        LocationSpec("LaunchDaemons", "LaunchDaemons", 1),
+        LocationSpec("PrivilegedHelperTools", "PrivilegedHelperTools", 1),
+        LocationSpec("Extensions", "Extensions", 1),
     ]
 
     /// Unix tool prefixes outside `~/Library` that pkg/brew installers drop CLI
@@ -137,23 +157,36 @@ enum Locations {
         "Internet Plug-Ins", "PreferencePanes", "PrivilegedHelperTools",
         "Services", "Extensions", "Configuration", "Receipts", "Package Files",
         "Command Line Tools", "Shell Completions",
-        "Audio Plug-Ins", "Screen Savers", "Color Pickers", "Input Methods",
+        "Audio Plug-Ins", "Components", "Filesystems", "Frameworks",
+        "Keyboard Layouts", "PDF Services", "Scripting Additions", "Startup Items",
+        "Widgets", "Screen Savers", "Color Pickers", "Input Methods",
         "Spotlight", "QuickLook", "Contextual Menu Items", "Address Book Plug-Ins",
         "Mail Bundles", "Automator", "Dictionaries", "Sounds", "Developer",
         "Fonts", "Home", "Temporary", "Found by Spotlight",
         "Orphans (High confidence)", "Orphans (Medium confidence)", "Orphans (Low confidence)",
     ]
 
-    private static func build(root: URL, entries: [(String, String, Int, Bool, Bool)], domain: FileDomain) -> [LibraryLocation] {
+    private static func build(
+        root: URL,
+        entries: [LocationSpec],
+        domain: FileDomain
+    ) -> [LibraryLocation] {
         let fm = FileManager.default
         var seen = Set<String>()
         var result: [LibraryLocation] = []
-        for (category, sub, depth, resolves, autoSelectable) in entries {
-            let url = root.appendingPathComponent(sub, isDirectory: true)
+        for entry in entries {
+            let url = root.appendingPathComponent(entry.subpath, isDirectory: true)
             let key = url.standardizedFileURL.path
             guard !seen.contains(key), fm.fileExists(atPath: url.path) else { continue }
             seen.insert(key)
-            result.append(LibraryLocation(category: category, url: url, domain: domain, depth: depth, resolvesContainerID: resolves, autoSelectable: autoSelectable))
+            result.append(LibraryLocation(
+                category: entry.category,
+                url: url,
+                domain: domain,
+                depth: entry.depth,
+                resolvesContainerID: entry.resolvesContainerID,
+                autoSelectable: entry.autoSelectable
+            ))
         }
         return result
     }
@@ -232,17 +265,44 @@ enum Locations {
     static func homeLeftoverLocations() -> [LibraryLocation] {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser
+        let environment = ProcessInfo.processInfo.environment
         var result: [LibraryLocation] = []
+        var seen = Set<String>()
         func add(_ loc: LibraryLocation) {
-            if fm.fileExists(atPath: loc.url.path) { result.append(loc) }
+            let path = loc.url.standardizedFileURL.path
+            if seen.insert(path).inserted, fm.fileExists(atPath: path) { result.append(loc) }
         }
-        // Home root — hidden (dot) entries only.
+        // The XDG spec already requires these to be absolute paths and to be
+        // ignored otherwise; enforced here, plus a containment check, because the
+        // value becomes an auto-selectable scan root — an inherited
+        // `XDG_DATA_HOME=/` would point the walk at the whole filesystem.
+        let homePath = home.standardizedFileURL.path
+        func xdg(_ variable: String, fallback: String, category: String) {
+            let override = environment[variable].flatMap { value -> String? in
+                guard value.hasPrefix("/") else { return nil }
+                let standardized = URL(fileURLWithPath: value).standardizedFileURL.path
+                return standardized.hasPrefix(homePath + "/") ? standardized : nil
+            }
+            let path = override ?? home.appendingPathComponent(fallback, isDirectory: true).path
+            add(LibraryLocation(
+                category: category,
+                url: URL(fileURLWithPath: path, isDirectory: true),
+                domain: .user,
+                depth: 1
+            ))
+        }
+
         add(LibraryLocation(category: "Home", url: home, domain: .user, depth: 1, hiddenLeftoversOnly: true))
-        // XDG-style config/cache/data roots: match the app's own subdirectory.
-        add(LibraryLocation(category: "Configuration", url: home.appendingPathComponent(".config", isDirectory: true), domain: .user, depth: 1))
-        add(LibraryLocation(category: "Caches", url: home.appendingPathComponent(".cache", isDirectory: true), domain: .user, depth: 1))
-        add(LibraryLocation(category: "Application Support", url: home.appendingPathComponent(".local/share", isDirectory: true), domain: .user, depth: 1))
-        // World temp (`/tmp` → `/private/tmp`): app sockets / state files.
+        xdg("XDG_CONFIG_HOME", fallback: ".config", category: "Configuration")
+        xdg("XDG_CACHE_HOME", fallback: ".cache", category: "Caches")
+        xdg("XDG_DATA_HOME", fallback: ".local/share", category: "Application Support")
+        xdg("XDG_STATE_HOME", fallback: ".local/state", category: "Application Support")
+        add(LibraryLocation(
+            category: "Application Support",
+            url: home.appendingPathComponent(".var/app", isDirectory: true),
+            domain: .user,
+            depth: 1
+        ))
         add(LibraryLocation(category: "Temporary", url: URL(fileURLWithPath: "/private/tmp", isDirectory: true), domain: .user, depth: 1))
         return result
     }

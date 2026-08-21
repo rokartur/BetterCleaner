@@ -51,4 +51,24 @@ import Foundation
         #expect(!SpotlightScanner.associates("Spotify", parallels))
         #expect(!SpotlightScanner.associates("Paragon NTFS", parallels))
     }
+
+    @Test func declaredExecutableAndAlternateNamesAreSignals() {
+        let app = AppDescriptor(
+            bundleID: "com.microsoft.VSCode",
+            name: "Visual Studio Code",
+            executable: "Code",
+            extraNames: ["Code - Insiders"]
+        )
+
+        #expect(SpotlightScanner.associates("Code Cache", app))
+        #expect(SpotlightScanner.associates("code-insiders.log", app))
+    }
+
+    @Test func oneMetadataQueryCoversFilenamesAndBundleMetadata() {
+        let query = SpotlightScanner.metadataQuery(for: parallels)
+
+        #expect(query?.contains("kMDItemFSName") == true)
+        #expect(query?.contains("*com.parallels.desktop.console*") == true)
+        #expect(query?.contains("kMDItemCFBundleIdentifier") == true)
+    }
 }

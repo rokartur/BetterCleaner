@@ -21,6 +21,7 @@ import Foundation
             + Locations.perUserTempLocations().map { $0.category }
             + Locations.unixToolLocations().map { $0.category }
             + Locations.systemDataLocations().map { $0.category }
+            + Locations.homeLeftoverLocations().map { $0.category }
         for category in produced {
             #expect(order.contains(category), "category \(category) not in categoryOrder")
         }
