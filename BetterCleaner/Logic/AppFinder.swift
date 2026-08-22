@@ -118,7 +118,7 @@ enum AppFinder {
         let name = displayName ?? bundleName ?? url.deletingPathExtension().lastPathComponent
         let executable = bundle?.object(forInfoDictionaryKey: "CFBundleExecutable") as? String
         let shortVersion = bundle?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        let isSystem = url.path.hasPrefix("/System/")
+        let isSystem = isSystemBundle(url)
         let nested = nestedBundleIDs(in: url, excluding: bundleID)
         return InstalledApp(
             url: url,
@@ -131,6 +131,18 @@ enum AppFinder {
             teamID: resolveTeamID ? CodeSigning.teamID(of: url) : nil,
             shortVersion: shortVersion
         )
+    }
+
+    /// A bundle Apple owns and SIP protects: everything under `/System/`, plus
+    /// the built-ins Apple links into `/Applications` from a cryptex (Safari).
+    /// The restricted flag lives on the symlink itself, so `lstat` — not `stat`.
+    /// An unreadable bundle counts as system: `isSystem` gates removal, so the
+    /// uncertain case must point away from deleting Apple's files.
+    static func isSystemBundle(_ url: URL) -> Bool {
+        if url.path.hasPrefix("/System/") { return true }
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return true }
+        return info.st_flags & UInt32(SF_RESTRICTED) != 0
     }
 
     /// Harvest bundle ids from the helpers an app embeds — login items, plug-ins,

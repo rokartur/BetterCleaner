@@ -120,3 +120,29 @@ import Foundation
         #expect(sections.last?.items.map(\.size) == [100, 10])
     }
 }
+
+@Suite struct SystemBundleTests {
+    /// Safari is the reason this exists: Apple links it into `/Applications` from
+    /// a cryptex, so only its SIP flag — not its path — marks it as Apple's.
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: "/Applications/Safari.app"), "host has no Safari"))
+    func sipRestrictedBundleOutsideSystemCountsAsSystem() {
+        #expect(AppFinder.isSystemBundle(URL(fileURLWithPath: "/Applications/Safari.app")))
+    }
+
+    @Test func pathUnderSystemCountsAsSystem() {
+        #expect(AppFinder.isSystemBundle(URL(fileURLWithPath: "/System/Applications/Music.app")))
+    }
+
+    @Test func ordinaryBundleIsRemovable() throws {
+        let bundle = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("BetterCleanerTest-\(UUID().uuidString).app")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        #expect(!AppFinder.isSystemBundle(bundle))
+    }
+
+    /// Unreadable means unknown, and unknown must not authorise a delete.
+    @Test func missingBundleCountsAsSystem() {
+        #expect(AppFinder.isSystemBundle(URL(fileURLWithPath: "/Applications/NoSuchApp-\(UUID()).app")))
+    }
+}

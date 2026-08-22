@@ -6,9 +6,9 @@ import AppKit
 @MainActor
 final class FileListViewController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation {
 
-    /// Re-run the current scan after a successful trash (so removed rows vanish).
-    /// Only used now for a *complete uninstall* (the app bundle is gone, so the
-    /// app list must reload). Plain trashes/prunes update the model in place via
+    /// Re-runs the owning section's scan: fired by the footer's Rescan button (⌘R)
+    /// and after a *complete uninstall* (the app bundle is gone, so the app list
+    /// must reload). Plain trashes/prunes update the model in place via
     /// `removeTrashedItems` — no disk re-walk, no app-list reload.
     var onRescanRequested: (() -> Void)?
 
@@ -160,6 +160,8 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
     private let emptyState = EmptyStateView(symbol: "macwindow")
     private lazy var selectAllButton = Buttons.secondary("Select Safe", target: self, action: #selector(toggleSelectAll))
     private lazy var pruneLanguagesButton = Buttons.secondary("Prune Languages", target: self, action: #selector(pruneLanguages))
+    private lazy var rescanButton = Buttons.secondary("Rescan", target: self, action: #selector(rescanNow))
+    private var canRescan = false
     private let footerLabel = NSTextField(labelWithString: "")
     private let footerSizeLabel = NSTextField(labelWithString: "")
     private lazy var trashButton = Buttons.destructive("Move to Trash", target: self, action: #selector(trashSelected))
@@ -222,7 +224,12 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         footerSizeLabel.font = Typography.monospacedDigit(.subheadline, weight: .semibold)
         footerSizeLabel.textColor = .labelColor
         trashButton.isEnabled = false
-        let footer = ActionBarView(leading: [selectAllButton, pruneLanguagesButton, footerLabel, footerSizeLabel], trailing: [trashButton])
+        // ⌘R rides on the button (one detail pane in the hierarchy at a time, so no
+        // other list steals it). No icon — the sidebar's refresh owns arrow.clockwise.
+        rescanButton.keyEquivalent = "r"
+        rescanButton.keyEquivalentModifierMask = .command
+        rescanButton.toolTip = "Run this scan again (⌘R)."
+        let footer = ActionBarView(leading: [selectAllButton, pruneLanguagesButton, rescanButton, footerLabel, footerSizeLabel], trailing: [trashButton])
         footer.translatesAutoresizingMaskIntoConstraints = false
 
         // Live filter box. Opt-in (`enableSearch`) — hidden until a section turns
@@ -304,6 +311,9 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
 
     deinit { NotificationCenter.default.removeObserver(self) }
 
+    /// Inert while a spinner is up: a trash/uninstall only disables its own buttons, and restarting the scan under one strands its completion on a cleared list.
+    @objc private func rescanNow() { if loadingView.isHidden { onRescanRequested?() } }
+
     @objc private func applicationDidBecomeActive() {
         guard waitingForFullDiskAccess, FullDiskAccess.refresh() else { return }
         waitingForFullDiskAccess = false
@@ -332,7 +342,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         } else {
             loadingView.startIndeterminate(message)
         }
-        updateFooter()
+        updateFooter(rescanAvailable: false)
     }
 
     /// Drive the determinate bar (0…1).
@@ -372,7 +382,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         // Show the box once there's something to filter; keep any existing query.
         searchField.isHidden = !searchEnabled || allNodes.isEmpty
         reloadFiltered()
-        updateFooter()
+        updateFooter(rescanAvailable: true)
     }
 
     /// Turn on the live search box for this list, with a section-specific
@@ -396,7 +406,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         // the user acts, so this must not compete with it for attention.
         emptyState.configure(symbol: "macwindow", title: "No App Selected", message: message, tone: .hint)
         emptyState.isHidden = false
-        updateFooter()
+        updateFooter(rescanAvailable: false)
     }
 
     func showFullDiskAccessRequired() {
@@ -427,7 +437,8 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
             }
         )
         emptyState.isHidden = false
-        updateFooter()
+        // Granting access reactivates the app, which rescans on its own.
+        updateFooter(rescanAvailable: false)
     }
 
     func showCompletion(title: String, message: String, symbol: String = "checkmark.circle") {
@@ -441,7 +452,7 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         searchField.isHidden = true
         emptyState.configure(symbol: symbol, title: title, message: message)
         emptyState.isHidden = false
-        updateFooter()
+        updateFooter(rescanAvailable: false)
     }
 
     // MARK: - Search
@@ -552,15 +563,20 @@ final class FileListViewController: NSViewController, NSOutlineViewDataSource, N
         nodes.flatMap { $0.items }.filter { $0.isSelected }.count
     }
 
-    private func updateFooter() {
+    /// `rescanAvailable` arms the Rescan button on a state change (nil, from a
+    /// selection refresh, keeps it). Hiding it disarms ⌘R too, so a held shortcut
+    /// can't stack concurrent scans in sections that scan without a generation guard.
+    private func updateFooter(rescanAvailable: Bool? = nil) {
+        if let rescanAvailable { canRescan = rescanAvailable }
         let hasItems = !allNodes.isEmpty
         selectAllButton.isHidden = !hasItems
         trashButton.isHidden = !hasItems
         pruneLanguagesButton.isHidden = uninstallContext == nil || !hasItems
+        rescanButton.isHidden = !canRescan
 
-        // With no results there is no decision to make, so the whole footer band
+        // With neither results nor a rescan to offer the whole footer band
         // collapses (ActionBarView hides itself once every control is hidden)
-        // instead of leaving a stray caption on a permission or empty screen.
+        // instead of leaving a stray caption on a permission or loading screen.
         footerLabel.isHidden = !hasItems
 
         let selected = selectedItems

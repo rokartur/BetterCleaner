@@ -10,8 +10,9 @@ import AppKit
 /// signature is unchanged, so existing call sites are untouched.
 ///
 /// **The bar collapses itself when it has nothing to offer.** A loading,
-/// permission or empty state hides its own controls; a footer left behind with
-/// only a stray caption (or a row of disabled buttons) reads as a broken screen.
+/// permission or no-selection state hides its own controls; a footer left behind
+/// with only a stray caption (or a row of disabled buttons) reads as a broken
+/// screen. An empty *result* is the exception: it keeps its rescan offer.
 /// The bar observes its controls' `isHidden` and removes its whole band —
 /// hairline included — the moment none of them is visible, so those states end
 /// flush at the bottom of the pane instead of against an empty ledge.
